@@ -1,0 +1,18 @@
+{
+  "name": "daily-oil-trading-risk-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Server-backed Daily Oil Trading Risk Dashboard",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "express-session": "^1.18.2",
+    "multer": "^2.0.2",
+    "xlsx": "^0.18.5"
+  }
+}

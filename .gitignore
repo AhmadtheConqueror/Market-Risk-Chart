@@ -1,0 +1,6 @@
+.env
+node_modules/
+database/*.db
+database/*.db-*
+uploads/*.xlsx
+uploads/*.tmp
