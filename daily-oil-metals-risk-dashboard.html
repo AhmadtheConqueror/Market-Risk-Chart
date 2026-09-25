@@ -1,0 +1,797 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Daily Barrel & Metals Risk Advisor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Source+Serif+4:wght@600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root{
+    --navy-950:#0a1330;
+    --navy-900:#0f1b3d;
+    --navy-800:#132049;
+    --navy-700:#1b2a54;
+    --slate-bg:#eef1f7;
+    --card:#ffffff;
+    --line:#dfe3ee;
+    --ink:#151b30;
+    --muted:#5d6683;
+    --faint:#8891ac;
+    --amber:#c9862a;
+    --gold:#dba53c;
+    --green:#2f8f5b;
+    --green-bg:#e5f4ec;
+    --yellow:#b8862a;
+    --yellow-bg:#fbf1dc;
+    --red:#c23b3b;
+    --red-bg:#fbe7e7;
+    --blue:#2c539e;
+    --blue-bg:#e8eef8;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{
+    margin:0;
+    background:var(--slate-bg);
+    color:var(--ink);
+    font-family:'IBM Plex Sans', sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .mono{font-family:'IBM Plex Mono', monospace;}
+  a{color:inherit;}
+
+  /* ===== HEADER ===== */
+  header.top{
+    background:linear-gradient(135deg,var(--navy-950) 0%, var(--navy-900) 55%, #1c2f66 100%);
+    color:#fff;
+    padding:22px 32px 0 32px;
+  }
+  .top-row{
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-start;
+    flex-wrap:wrap;
+    gap:16px;
+    padding-bottom:18px;
+  }
+  .brand{display:flex; gap:14px; align-items:center;}
+  .brand-mark{
+    width:42px;height:42px;border-radius:10px;
+    background:linear-gradient(145deg,var(--gold),#a9711f);
+    display:flex;align-items:center;justify-content:center;
+    font-family:'Source Serif 4',serif; font-weight:700; font-size:20px; color:#241505;
+    flex-shrink:0;
+  }
+  .brand h1{
+    font-family:'Source Serif 4', serif;
+    font-size:24px;
+    font-weight:700;
+    margin:0 0 2px 0;
+    letter-spacing:.2px;
+  }
+  .brand p{margin:0; font-size:13px; color:#aab4d6;}
+  .top-meta{
+    display:flex; gap:26px; align-items:center; flex-wrap:wrap;
+  }
+  .meta-block{text-align:right;}
+  .meta-block .lbl{font-size:11px; color:#8f9ac2; margin-bottom:2px;}
+  .meta-block .val{font-size:14px; font-weight:600;}
+  .decision-tag{
+    background:rgba(219,165,60,.15);
+    border:1px solid rgba(219,165,60,.5);
+    color:var(--gold);
+    padding:8px 14px;
+    border-radius:8px;
+    font-size:12.5px;
+    line-height:1.4;
+    max-width:230px;
+  }
+  nav.tabs{
+    display:flex; gap:2px; border-top:1px solid rgba(255,255,255,.12);
+    overflow-x:auto;
+  }
+  nav.tabs a{
+    text-decoration:none;
+    color:#c3cbe6;
+    font-size:13.5px;
+    font-weight:500;
+    padding:13px 18px;
+    white-space:nowrap;
+    border-bottom:2px solid transparent;
+    transition:color .15s, border-color .15s;
+  }
+  nav.tabs a:hover{color:#fff; border-color:rgba(219,165,60,.5);}
+
+  /* ===== ALERT STRIP ===== */
+  .alert-strip{
+    background:var(--navy-700);
+    color:#fff;
+    padding:12px 32px;
+    display:flex;
+    align-items:center;
+    gap:24px;
+    flex-wrap:wrap;
+    font-size:13px;
+    border-bottom:3px solid var(--gold);
+  }
+  .alert-strip .as-title{font-weight:600; color:var(--gold); display:flex; align-items:center; gap:8px;}
+  .light-count{display:flex; align-items:center; gap:6px;}
+  .dot{width:10px;height:10px;border-radius:50%; display:inline-block; flex-shrink:0;}
+  .dot.green{background:var(--green);} .dot.yellow{background:var(--yellow);} .dot.red{background:var(--red);}
+  .alert-strip .sep{color:#5b6690;}
+
+  /* ===== LAYOUT ===== */
+  main{max-width:1500px; margin:0 auto; padding:28px 32px 60px 32px;}
+  section{margin-bottom:34px; scroll-margin-top:110px;}
+  .section-head{
+    display:flex; align-items:baseline; justify-content:space-between; gap:16px;
+    margin-bottom:14px;
+    border-bottom:1px solid var(--line);
+    padding-bottom:10px;
+  }
+  .section-head h2{
+    font-family:'Source Serif 4', serif;
+    font-size:20px;
+    margin:0;
+    color:var(--navy-900);
+  }
+  .section-head .sub{font-size:12.5px; color:var(--faint); margin-top:3px;}
+  .section-head .tag{
+    font-size:11.5px; color:var(--muted); background:var(--blue-bg); border:1px solid #cdd9f2;
+    padding:4px 10px; border-radius:20px; white-space:nowrap;
+  }
+
+  .card{
+    background:var(--card);
+    border:1px solid var(--line);
+    border-radius:10px;
+  }
+
+  /* ===== GRID: BRIEFING + ADVISOR VIEW ===== */
+  .grid-top{display:grid; grid-template-columns:1.15fr .85fr; gap:20px;}
+  @media (max-width:980px){ .grid-top{grid-template-columns:1fr;} }
+
+  .briefing{padding:20px 22px;}
+  .briefing .bf-item{
+    display:flex; gap:12px; padding:11px 0; border-bottom:1px dashed var(--line);
+  }
+  .briefing .bf-item:last-child{border-bottom:none;}
+  .bf-time{font-size:11.5px; color:var(--faint); width:52px; flex-shrink:0; padding-top:2px;}
+  .bf-body p{margin:0 0 4px 0; font-size:13.6px; line-height:1.5;}
+  .bf-tag{
+    display:inline-block; font-size:10.5px; font-weight:600; padding:2px 8px; border-radius:20px; margin-right:6px;
+  }
+  .bf-tag.green{background:var(--green-bg); color:var(--green);}
+  .bf-tag.yellow{background:var(--yellow-bg); color:var(--yellow);}
+  .bf-tag.red{background:var(--red-bg); color:var(--red);}
+
+  .advisor{padding:20px 22px; background:linear-gradient(160deg,#111d42,#1a2c5c); color:#fff; border:none;}
+  .advisor .a-head{display:flex; align-items:center; gap:10px; margin-bottom:14px;}
+  .advisor .a-head .av-icon{
+    width:30px;height:30px;border-radius:50%; background:var(--gold); color:#241505; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:14px; flex-shrink:0;
+  }
+  .advisor h2{font-family:'Source Serif 4',serif; font-size:18px; margin:0; color:#fff;}
+  .advisor .a-sub{font-size:11.5px; color:#a7b1d8;}
+  .call{
+    background:rgba(255,255,255,.06);
+    border:1px solid rgba(255,255,255,.12);
+    border-radius:8px;
+    padding:13px 14px;
+    margin-bottom:10px;
+  }
+  .call:last-child{margin-bottom:0;}
+  .call-top{display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;}
+  .call-label{font-size:11px; font-weight:700; letter-spacing:.3px; padding:3px 9px; border-radius:20px;}
+  .call-label.opportunity{background:rgba(63,166,108,.22); color:#7fe0ab;}
+  .call-label.threat{background:rgba(198,63,63,.22); color:#f29b9b;}
+  .call-label.watch{background:rgba(219,165,60,.22); color:#f0c877;}
+  .call-conf{font-size:11px; color:#95a1cc;}
+  .call p{margin:0; font-size:13px; line-height:1.55; color:#dfe4f5;}
+
+  /* ===== MARKET RISK ===== */
+  .market-grid{display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:18px;}
+  @media (max-width:1200px){ .market-grid{grid-template-columns:repeat(2,1fr);} }
+  @media (max-width:600px){ .market-grid{grid-template-columns:1fr;} }
+
+  .prod-card{padding:16px 16px 14px 16px; position:relative; overflow:hidden;}
+  .prod-card::before{
+    content:''; position:absolute; left:0; top:0; bottom:0; width:4px;
+  }
+  .prod-card.st-green::before{background:var(--green);}
+  .prod-card.st-yellow::before{background:var(--yellow);}
+  .prod-card.st-red::before{background:var(--red);}
+  .prod-top{display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:10px;}
+  .prod-name{font-size:13px; font-weight:600; color:var(--navy-900); line-height:1.3;}
+  .prod-tag{font-size:10px; color:var(--faint); margin-top:2px;}
+  .status-pill{font-size:10.5px; font-weight:700; padding:3px 9px; border-radius:20px; white-space:nowrap;}
+  .status-pill.st-green{background:var(--green-bg); color:var(--green);}
+  .status-pill.st-yellow{background:var(--yellow-bg); color:var(--yellow);}
+  .status-pill.st-red{background:var(--red-bg); color:var(--red);}
+  .prod-price{font-family:'IBM Plex Mono',monospace; font-size:23px; font-weight:600; color:var(--ink);}
+  .prod-change{font-size:12.5px; font-weight:600; margin-left:6px;}
+  .prod-change.up{color:var(--red);} .prod-change.down{color:var(--green);}
+  .prod-z{font-size:11.5px; color:var(--muted); margin-top:8px; padding-top:8px; border-top:1px solid var(--line);}
+  .prod-z b{color:var(--ink);}
+  .zbar{height:5px; border-radius:4px; background:#eef0f6; margin-top:6px; position:relative; overflow:visible;}
+  .zbar .zfill{position:absolute; top:0; bottom:0; border-radius:4px;}
+  .zbar .zmark{position:absolute; top:-3px; width:2px; height:11px; background:var(--ink);}
+
+  .stdev-panel{display:grid; grid-template-columns:1.5fr 1fr; gap:18px;}
+  @media (max-width:980px){ .stdev-panel{grid-template-columns:1fr;} }
+  .chart-card{padding:18px 20px;}
+  .chart-card h3{font-size:14px; margin:0 0 2px 0; color:var(--navy-900);}
+  .chart-card .cc-sub{font-size:11.5px; color:var(--faint); margin-bottom:12px;}
+  canvas{max-width:100%;}
+
+  .outlier-list{padding:18px 20px;}
+  .outlier-list h3{font-size:14px; margin:0 0 12px 0; color:var(--navy-900);}
+  .out-row{display:flex; justify-content:space-between; align-items:center; padding:9px 0; border-bottom:1px solid var(--line); font-size:12.5px;}
+  .out-row:last-child{border-bottom:none;}
+  .out-name{font-weight:500;}
+  .out-badge{font-family:'IBM Plex Mono',monospace; font-size:11.5px; font-weight:600; padding:3px 8px; border-radius:6px;}
+  .out-badge.ok{background:var(--green-bg); color:var(--green);}
+  .out-badge.warn{background:var(--yellow-bg); color:var(--yellow);}
+  .out-badge.alert{background:var(--red-bg); color:var(--red);}
+
+  /* ===== TRADER DESK ===== */
+  .desk-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:16px;}
+  @media (max-width:900px){ .desk-grid{grid-template-columns:1fr;} }
+  .desk-card{padding:16px 18px;}
+  .desk-card h4{font-size:13px; margin:0 0 4px 0; color:var(--navy-900); display:flex; align-items:center; gap:7px;}
+  .desk-card .desk-src{font-size:10.5px; color:var(--faint); margin-bottom:10px;}
+  .desk-card p, .desk-card li{font-size:12.8px; line-height:1.55; color:#333c58;}
+  .desk-card ul{margin:0; padding-left:16px;}
+  .desk-card li{margin-bottom:6px;}
+
+  /* ===== MACRO DRIVERS ===== */
+  .macro-strip{display:grid; grid-template-columns:repeat(6,1fr); gap:12px; margin-bottom:16px;}
+  @media (max-width:980px){ .macro-strip{grid-template-columns:repeat(3,1fr);} }
+  @media (max-width:560px){ .macro-strip{grid-template-columns:repeat(2,1fr);} }
+  .macro-cell{padding:13px 12px; text-align:center;}
+  .macro-cell .m-lbl{font-size:10.5px; color:var(--faint); margin-bottom:6px; line-height:1.3;}
+  .macro-cell .m-val{font-family:'IBM Plex Mono',monospace; font-size:19px; font-weight:600; color:var(--navy-900);}
+  .macro-cell .m-note{font-size:10px; color:var(--muted); margin-top:4px;}
+
+  .driver-note{padding:16px 18px; font-size:13px; line-height:1.6; color:#333c58;}
+  .driver-note b{color:var(--navy-900);}
+
+  /* ===== INFERENCE CHAIN ===== */
+  .chain-wrap{padding:22px 24px;}
+  .chain{display:flex; align-items:center; gap:0; flex-wrap:wrap; margin-bottom:18px;}
+  .chain-node{
+    background:var(--blue-bg); border:1px solid #cdd9f2; border-radius:8px;
+    padding:12px 16px; font-size:12.5px; font-weight:600; color:var(--navy-900);
+    min-width:140px; text-align:center;
+  }
+  .chain-arrow{padding:0 10px; color:var(--faint); font-size:18px;}
+  .chain-impact{
+    margin-top:6px; font-size:11px; color:var(--muted); text-align:center;
+    max-width:150px;
+  }
+  .chain-col{display:flex; flex-direction:column; align-items:center;}
+  .chain-2{margin-top:8px;}
+  .chain-explain{font-size:13px; line-height:1.6; color:#333c58; border-top:1px solid var(--line); padding-top:16px;}
+
+  /* ===== GEOPOLITICAL ===== */
+  .geo-grid{display:grid; grid-template-columns:repeat(4,1fr); gap:16px;}
+  @media (max-width:1100px){ .geo-grid{grid-template-columns:repeat(2,1fr);} }
+  @media (max-width:600px){ .geo-grid{grid-template-columns:1fr;} }
+  .geo-card{padding:17px 18px;}
+  .geo-top{display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;}
+  .geo-name{font-size:14px; font-weight:700; color:var(--navy-900);}
+  .geo-rating{font-size:10.5px; font-weight:700; padding:3px 9px; border-radius:20px;}
+  .geo-body p{font-size:12.3px; line-height:1.55; color:#3a4262; margin:0 0 9px 0;}
+  .geo-body .geo-label{font-size:10.5px; font-weight:700; color:var(--faint); letter-spacing:.2px; margin-bottom:2px;}
+  .geo-impact{background:#f6f7fb; border-radius:6px; padding:9px 11px; font-size:11.8px; color:var(--navy-900); margin-top:8px;}
+
+  /* ===== RISK REGISTER ===== */
+  table.reg{width:100%; border-collapse:collapse;}
+  table.reg th{
+    text-align:left; font-size:11px; color:var(--faint); text-transform:none;
+    padding:10px 14px; border-bottom:1px solid var(--line); font-weight:600;
+  }
+  table.reg td{padding:12px 14px; font-size:13px; border-bottom:1px solid var(--line);}
+  table.reg tr:last-child td{border-bottom:none;}
+  .mat-pill{font-size:11px; font-weight:700; padding:4px 10px; border-radius:20px; display:inline-flex; align-items:center; gap:5px;}
+  .mat-pill.major{background:var(--yellow-bg); color:var(--yellow);}
+  .mat-pill.moderate{background:var(--blue-bg); color:var(--blue);}
+  .mat-pill.catastrophic{background:var(--red-bg); color:var(--red);}
+  .trend-up{color:var(--red); font-size:11.5px;}
+  .trend-down{color:var(--green); font-size:11.5px;}
+  .trend-flat{color:var(--faint); font-size:11.5px;}
+
+  /* ===== CALENDAR ===== */
+  .cal-grid{display:grid; grid-template-columns:1fr 1fr; gap:16px;}
+  @media (max-width:900px){ .cal-grid{grid-template-columns:1fr;} }
+  .cal-card{padding:16px 18px;}
+  .cal-card h4{font-size:13px; margin:0 0 12px 0; color:var(--navy-900);}
+  .cal-row{display:flex; gap:12px; padding:9px 0; border-bottom:1px solid var(--line); align-items:center;}
+  .cal-row:last-child{border-bottom:none;}
+  .cal-date{
+    font-family:'IBM Plex Mono',monospace; font-size:11.5px; background:var(--navy-900); color:#fff;
+    padding:6px 8px; border-radius:6px; text-align:center; min-width:56px; line-height:1.2;
+  }
+  .cal-info .cal-title{font-size:12.8px; font-weight:600; color:var(--ink);}
+  .cal-info .cal-desc{font-size:11.3px; color:var(--muted);}
+
+  /* ===== OVERALL RISK ===== */
+  .overall-grid{display:grid; grid-template-columns:1fr 1fr; gap:20px;}
+  @media (max-width:900px){ .overall-grid{grid-template-columns:1fr;} }
+  .gauge-card{padding:20px; display:flex; flex-direction:column; align-items:center; text-align:center;}
+  .cat-card{padding:8px 0;}
+  .cat-row{display:flex; justify-content:space-between; align-items:center; padding:13px 20px; border-bottom:1px solid var(--line);}
+  .cat-row:last-child{border-bottom:none;}
+  .cat-name{font-size:13px; font-weight:500; display:flex; align-items:center; gap:8px;}
+
+  footer{
+    background:var(--navy-900); color:#aab4d6; text-align:center; padding:16px; font-size:12px;
+  }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="top-row">
+    <div class="brand">
+      <div class="brand-mark">RA</div>
+      <div>
+        <h1>Daily Barrel &amp; Metals Risk Advisor</h1>
+        <p>Crude · Gasoil · Premium Unleaded Gasoline · Tin — a daily decision tool for the desk</p>
+      </div>
+    </div>
+    <div class="top-meta">
+      <div class="meta-block">
+        <div class="lbl">First hour check</div>
+        <div class="val">08:30 WAT</div>
+      </div>
+      <div class="meta-block">
+        <div class="lbl">As at</div>
+        <div class="val">14 Sep 2026</div>
+      </div>
+      <div class="decision-tag">Built to answer one question first: is there a problem I need to know about right now?</div>
+    </div>
+  </div>
+  <nav class="tabs">
+    <a href="#briefing">First Hour Briefing</a>
+    <a href="#advisor">Risk Advisor's View</a>
+    <a href="#market">Market Risk</a>
+    <a href="#desk">Trader Desk Pulse</a>
+    <a href="#macro">Macro Drivers</a>
+    <a href="#chain">Pattern &amp; Inference</a>
+    <a href="#geo">Geopolitical Risk</a>
+    <a href="#register">Risk Register</a>
+    <a href="#calendar">Forward Calendar</a>
+    <a href="#overall">Overall Position</a>
+  </nav>
+</header>
+
+<div class="alert-strip">
+  <div class="as-title">● Today's triggers</div>
+  <div class="light-count"><span class="dot red"></span> 1 red — Gasoil breached 2σ threshold</div>
+  <span class="sep">|</span>
+  <div class="light-count"><span class="dot yellow"></span> 2 amber — Tin, Strait of Hormuz watch</div>
+  <span class="sep">|</span>
+  <div class="light-count"><span class="dot green"></span> 2 green — Crude, Gasoline within band</div>
+  <span class="sep">|</span>
+  <div>Next threshold review: 12:00 WAT</div>
+</div>
+
+<main>
+
+  <!-- ============ FIRST HOUR BRIEFING + ADVISOR ============ -->
+  <section id="briefing">
+    <div class="grid-top">
+      <div class="card briefing">
+        <div class="section-head" style="border-bottom:none; padding-bottom:0; margin-bottom:10px;">
+          <h2>First Hour — what happened overnight</h2>
+          <span class="tag">Since yesterday's close</span>
+        </div>
+        <div class="bf-item">
+          <div class="bf-time mono">02:14</div>
+          <div class="bf-body">
+            <span class="bf-tag red">Gasoil</span>
+            <p>Gasoil 0.1%S FOB Med Cargo jumped +$128.25/mt (+10.0%) on Asian trading hours, driven by renewed strait-transit tension. This is the single largest overnight move across covered products — flagged red.</p>
+          </div>
+        </div>
+        <div class="bf-item">
+          <div class="bf-time mono">03:40</div>
+          <div class="bf-body">
+            <span class="bf-tag yellow">Geopolitical</span>
+            <p>Iran has blacklisted 45 tankers over Strait of Hormuz transit rules; no final Iran–Oman deal confirmed. Watching for freight and war-risk premium spillover into Gasoil and Crude.</p>
+          </div>
+        </div>
+        <div class="bf-item">
+          <div class="bf-time mono">05:05</div>
+          <div class="bf-body">
+            <span class="bf-tag yellow">Tin</span>
+            <p>Tin trading inside its amber band on thin Asian volume — no fresh catalyst, but sits closer to its upper threshold than at yesterday's close.</p>
+          </div>
+        </div>
+        <div class="bf-item">
+          <div class="bf-time mono">06:50</div>
+          <div class="bf-body">
+            <span class="bf-tag green">Nigeria</span>
+            <p>Moody's revised Nigeria's sovereign outlook to positive, citing stronger FX reserves and GDP growth — modestly supportive for local demand and naira-linked exposures.</p>
+          </div>
+        </div>
+        <div class="bf-item">
+          <div class="bf-time mono">07:30</div>
+          <div class="bf-body">
+            <span class="bf-tag green">Crude / Gasoline</span>
+            <p>Dated Brent and Gasoline Premium Unleaded both moved within their normal daily range — no threshold breach, business as usual.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="card advisor" id="advisor">
+        <div class="a-head">
+          <div class="av-icon">R</div>
+          <div>
+            <h2>Risk Advisor's View</h2>
+            <div class="a-sub">My read on today, and what I'd do about it</div>
+          </div>
+        </div>
+        <div class="call">
+          <div class="call-top">
+            <span class="call-label threat">Threat</span>
+            <span class="call-conf">High conviction</span>
+          </div>
+          <p>Gasoil's break above 2 standard deviations isn't isolated — it's arriving alongside Hormuz transit friction and a tanker blacklist. I read this as the start of a freight-driven premium into Gasoil rather than a one-day spike. Recommend reviewing hedge coverage on Gasoil exposure before the European open.</p>
+        </div>
+        <div class="call">
+          <div class="call-top">
+            <span class="call-label opportunity">Opportunity</span>
+            <span class="call-conf">Medium conviction</span>
+          </div>
+          <p>Nigeria's outlook upgrade plus rising gas-flaring conversion plans point to a government leaning into infrastructure and energy investment. That typically precedes stronger domestic product demand — worth flagging to the desk as a multi-week tailwind for Nigerian-linked barrels, not just a one-line rating headline.</p>
+        </div>
+        <div class="call">
+          <div class="call-top">
+            <span class="call-label watch">Watch</span>
+            <span class="call-conf">Low conviction, early</span>
+          </div>
+          <p>Food inflation at 14.31% is still climbing. Historically this feeds through fertiliser and transport costs into crude-linked demand within 6–10 weeks. Not actionable yet, but it's the indicator I'd want on the desk's radar this month.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ MARKET RISK ============ -->
+  <section id="market">
+    <div class="section-head">
+      <div>
+        <h2>Market Risk — covered products</h2>
+        <div class="sub">Crude, Gasoil, Premium Unleaded Gasoline and Tin. Status reflects position against a 90-day mean and threshold band, not price level alone.</div>
+      </div>
+      <span class="tag">Green &lt;1σ · Amber 1–2σ · Red &gt;2σ</span>
+    </div>
+
+    <div class="market-grid">
+      <div class="card prod-card st-green">
+        <div class="prod-top">
+          <div><div class="prod-name">Dated Brent</div><div class="prod-tag">Crude · USD/bbl</div></div>
+          <span class="status-pill st-green">Green</span>
+        </div>
+        <div><span class="prod-price">$93.96</span><span class="prod-change up">+4.32 (+4.8%)</span></div>
+        <div class="prod-z">Z-score <b>+0.7σ</b> vs 90-day mean $89.10</div>
+        <div class="zbar"><div class="zfill" style="left:44%;width:12%;background:var(--green);"></div><div class="zmark" style="left:56%;"></div></div>
+      </div>
+
+      <div class="card prod-card st-red">
+        <div class="prod-top">
+          <div><div class="prod-name">Gasoil 0.1%S FOB Med Cargo</div><div class="prod-tag">Middle Distillate · USD/mt</div></div>
+          <span class="status-pill st-red">Red</span>
+        </div>
+        <div><span class="prod-price">$1,408.75</span><span class="prod-change up">+128.25 (+10.0%)</span></div>
+        <div class="prod-z">Z-score <b>+2.4σ</b> vs 90-day mean $1,190.40 — outlier</div>
+        <div class="zbar"><div class="zfill" style="left:44%;width:44%;background:var(--red);"></div><div class="zmark" style="left:88%;"></div></div>
+      </div>
+
+      <div class="card prod-card st-green">
+        <div class="prod-top">
+          <div><div class="prod-name">Gasoline Prem Unleaded 10ppmS</div><div class="prod-tag">FOB AR Barge · USD/mt</div></div>
+          <span class="status-pill st-green">Green</span>
+        </div>
+        <div><span class="prod-price">$1,252.75</span><span class="prod-change up">+25.50 (+2.1%)</span></div>
+        <div class="prod-z">Z-score <b>+0.5σ</b> vs 90-day mean $1,215.90</div>
+        <div class="zbar"><div class="zfill" style="left:44%;width:8%;background:var(--green);"></div><div class="zmark" style="left:52%;"></div></div>
+      </div>
+
+      <div class="card prod-card st-yellow">
+        <div class="prod-top">
+          <div><div class="prod-name">Tin (LME Cash)</div><div class="prod-tag">Metals · USD/t</div></div>
+          <span class="status-pill st-yellow">Amber</span>
+        </div>
+        <div><span class="prod-price">$32,140</span><span class="prod-change up">+410 (+1.3%)</span></div>
+        <div class="prod-z">Z-score <b>+1.6σ</b> vs 90-day mean $30,050 — approaching threshold</div>
+        <div class="zbar"><div class="zfill" style="left:44%;width:28%;background:var(--yellow);"></div><div class="zmark" style="left:72%;"></div></div>
+      </div>
+    </div>
+
+    <div class="stdev-panel">
+      <div class="card chart-card">
+        <h3>90-day price band vs current level — Dated Brent &amp; Gasoil</h3>
+        <div class="cc-sub">Shaded band = mean ± 2 standard deviations in a non-stressed window. Points outside the band are treated as outliers, not noise.</div>
+        <canvas id="stdevChart" height="230"></canvas>
+      </div>
+      <div class="card outlier-list">
+        <h3>Outlier scan — today</h3>
+        <div class="out-row"><span class="out-name">Gasoil FOB Med Cargo</span><span class="out-badge alert">+2.4σ</span></div>
+        <div class="out-row"><span class="out-name">Tin (LME Cash)</span><span class="out-badge warn">+1.6σ</span></div>
+        <div class="out-row"><span class="out-name">Dated Brent</span><span class="out-badge ok">+0.7σ</span></div>
+        <div class="out-row"><span class="out-name">Gasoline Prem Unleaded</span><span class="out-badge ok">+0.5σ</span></div>
+        <div class="out-row"><span class="out-name">Jet FOB NWE Cargo (info only)</span><span class="out-badge warn">+1.8σ</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ TRADER DESK PULSE ============ -->
+  <section id="desk">
+    <div class="section-head">
+      <div>
+        <h2>Trader Desk Pulse</h2>
+        <div class="sub">What's in traders' world today — positioning, counterparty colour, and how it ties to our barrels</div>
+      </div>
+    </div>
+    <div class="desk-grid">
+      <div class="card desk-card">
+        <h4>🗣️ Counterparty colour</h4>
+        <div class="desk-src">Via SET desk conversations &amp; counterpart contacts</div>
+        <p>Counterparts describe positioning as defensively long distillates into the Hormuz headlines, with limited appetite to chase gasoline. Consistent with the move we're seeing in Gasoil, not yet in Premium Unleaded.</p>
+      </div>
+      <div class="card desk-card">
+        <h4>🛢️ Risk strategy with barrels</h4>
+        <div class="desk-src">Desk-level read for today</div>
+        <ul>
+          <li>Hold current Gasoil hedge ratio under review — red flag active.</li>
+          <li>No change recommended on Crude or Gasoline positions.</li>
+          <li>Tin: tighten stop levels given amber proximity to threshold.</li>
+        </ul>
+      </div>
+      <div class="card desk-card">
+        <h4>📌 What to watch this session</h4>
+        <div class="desk-src">Rapport items for the desk conversation</div>
+        <ul>
+          <li>European open reaction to overnight Gasoil move.</li>
+          <li>Any Iran–Oman statement on Strait of Hormuz transit.</li>
+          <li>LME Tin volumes as Asian session closes.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ MACRO DRIVERS ============ -->
+  <section id="macro">
+    <div class="section-head">
+      <div>
+        <h2>Macro Drivers</h2>
+        <div class="sub">Not just the numbers — what's driving them and why it matters to the barrel</div>
+      </div>
+    </div>
+    <div class="macro-strip">
+      <div class="card macro-cell"><div class="m-lbl">Headline Inflation (Mar '26)</div><div class="m-val">15.38%</div><div class="m-note">Rising</div></div>
+      <div class="card macro-cell"><div class="m-lbl">Food Inflation (Mar '26)</div><div class="m-val">14.31%</div><div class="m-note">Rising — feeds chain below</div></div>
+      <div class="card macro-cell"><div class="m-lbl">Core Inflation (Mar '26)</div><div class="m-val">16.21%</div><div class="m-note">Rising</div></div>
+      <div class="card macro-cell"><div class="m-lbl">Real GDP Growth (Q4 '25)</div><div class="m-val">4.07%</div><div class="m-note">Improving</div></div>
+      <div class="card macro-cell"><div class="m-lbl">PMI (Mar '26)</div><div class="m-val">51.9</div><div class="m-note">Expansionary</div></div>
+      <div class="card macro-cell"><div class="m-lbl">Oil Production (Mar '26)</div><div class="m-val">1.546 mbpd</div><div class="m-note">Stable</div></div>
+    </div>
+    <div class="card driver-note">
+      <b>What's actually driving this:</b> Nigeria's infrastructure investment push and the Greenstream/Libya gas-flaring conversion plans both point toward governments building appetite to secure and manage energy resources domestically — that's a demand-side signal, not just a headline. Read alongside a 4.07% GDP print and an expansionary PMI, it suggests underlying oil demand is being supported by policy, not just price. This is the kind of thread I try to pull before it shows up in the price.
+    </div>
+  </section>
+
+  <!-- ============ PATTERN & INFERENCE ============ -->
+  <section id="chain">
+    <div class="section-head">
+      <div>
+        <h2>Pattern &amp; Inference Engine</h2>
+        <div class="sub">How one indicator's movement tends to travel through to the barrel — and to the business</div>
+      </div>
+    </div>
+    <div class="card chain-wrap">
+      <div class="chain">
+        <div class="chain-col"><div class="chain-node">Food Inflation<br><span class="mono" style="font-weight:400;font-size:11px;">14.31% ↑</span></div><div class="chain-impact">Rising input costs for farmers</div></div>
+        <div class="chain-arrow">→</div>
+        <div class="chain-col"><div class="chain-node">Fertiliser Price</div><div class="chain-impact">Higher production &amp; energy input cost</div></div>
+        <div class="chain-arrow">→</div>
+        <div class="chain-col"><div class="chain-node">Transportation Cost</div><div class="chain-impact">Freight &amp; distribution pressure</div></div>
+        <div class="chain-arrow">→</div>
+        <div class="chain-col"><div class="chain-node" style="background:var(--yellow-bg);border-color:#e6cf9c;">Crude Price</div><div class="chain-impact">Demand for transport fuel firms</div></div>
+      </div>
+      <div class="chain-explain">
+        <b>The inference, in my own words:</b> this is the chain I hold in my head when food inflation moves — it's rarely the headline itself that matters, it's the second- and third-order cost it pushes through fertiliser and transport, which eventually shows up as firmer transport-fuel demand. Where I'd flag it as an <b>opportunity</b>: Nigerian infrastructure investment tends to run the same chain in reverse, signalling appetite for oil to support growth. Where I'd flag it as a <b>threat</b>: a fast food-inflation move with no matching wage growth risks demand destruction further down the chain, which would show up first in Gasoline, not Crude.
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ GEOPOLITICAL ============ -->
+  <section id="geo">
+    <div class="section-head">
+      <div>
+        <h2>Geopolitical Risk — by jurisdiction</h2>
+        <div class="sub">Nigeria, South Africa, Ghana and the Middle East (Strait of Hormuz corridor) — rated, with cost, price and FX exposure to the business</div>
+      </div>
+    </div>
+    <div class="geo-grid">
+      <div class="card geo-card">
+        <div class="geo-top"><span class="geo-name">Nigeria</span><span class="geo-rating" style="background:var(--yellow-bg);color:var(--yellow);">Elevated</span></div>
+        <div class="geo-body">
+          <div class="geo-label">This period</div>
+          <p>Moody's revised sovereign outlook to positive (B3 affirmed), citing FX reserves and growth. Petrol pump prices rose to N1,307/litre in Lagos, Ogun and Abuja after a N65 gantry increase to N1,265.</p>
+          <div class="geo-impact"><b>Business exposure:</b> Supportive for naira-linked receivables and local demand; retail price pass-through raises counterparty margin pressure on downstream customers.</div>
+        </div>
+      </div>
+      <div class="card geo-card">
+        <div class="geo-top"><span class="geo-name">Middle East / Hormuz</span><span class="geo-rating" style="background:var(--red-bg);color:var(--red);">High</span></div>
+        <div class="geo-body">
+          <div class="geo-label">This period</div>
+          <p>Iran and Oman remain in talks over Strait of Hormuz transit and revenue-sharing with no confirmed deal. Iran has blacklisted 45 tankers over alleged transit violations, raising sanctions and ship-to-ship transfer risk.</p>
+          <div class="geo-impact"><b>Business exposure:</b> Direct driver of today's Gasoil freight/war-risk premium; laycan flexibility and sanctions screening should be revalidated on any cargo transiting the strait.</div>
+        </div>
+      </div>
+      <div class="card geo-card">
+        <div class="geo-top"><span class="geo-name">South Africa</span><span class="geo-rating" style="background:var(--green-bg);color:var(--green);">Low</span></div>
+        <div class="geo-body">
+          <div class="geo-label">This period</div>
+          <p>No material oil &amp; gas or currency-moving headlines this period; monitoring for rand volatility given broader EM risk-off moves tied to Hormuz tension.</p>
+          <div class="geo-impact"><b>Business exposure:</b> Limited direct exposure today; indirect FX sensitivity if EM risk sentiment deteriorates further.</div>
+        </div>
+      </div>
+      <div class="card geo-card">
+        <div class="geo-top"><span class="geo-name">Ghana</span><span class="geo-rating" style="background:var(--green-bg);color:var(--green);">Low</span></div>
+        <div class="geo-body">
+          <div class="geo-label">This period</div>
+          <p>No material developments flagged in the current cycle. Included for standing coverage given regional trade and currency linkages to Nigerian flows.</p>
+          <div class="geo-impact"><b>Business exposure:</b> Currently minimal; kept on standing watch rather than active alert.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ RISK REGISTER ============ -->
+  <section id="register">
+    <div class="section-head">
+      <div>
+        <h2>Risk Register</h2>
+        <div class="sub">Category and materiality only — event and mitigant detail lives in the full register, not the daily view</div>
+      </div>
+    </div>
+    <div class="card">
+      <table class="reg">
+        <thead>
+          <tr><th>S/N</th><th>Risk Category</th><th>Materiality</th><th>Trend</th><th>Owner</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>1</td><td>Capital Adequacy Risk</td><td><span class="mat-pill major">Major</span></td><td class="trend-flat">↔ Unchanged</td><td>CFO</td></tr>
+          <tr><td>2</td><td>Legal &amp; Contract Management Risk</td><td><span class="mat-pill moderate">Moderate</span></td><td class="trend-flat">↔ Unchanged</td><td>General Counsel</td></tr>
+          <tr><td>3</td><td>Counterparty Default Risk</td><td><span class="mat-pill major">Major</span></td><td class="trend-up">↑ Increased</td><td>Chief Risk Officer</td></tr>
+          <tr><td>4</td><td>Project Selection &amp; Planning Risk</td><td><span class="mat-pill moderate">Moderate</span></td><td class="trend-flat">↔ Unchanged</td><td>COO</td></tr>
+          <tr><td>5</td><td>Market Opportunity Risk</td><td><span class="mat-pill moderate">Moderate</span></td><td class="trend-down">↓ Reduced</td><td>Commercial Director</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============ FORWARD CALENDAR ============ -->
+  <section id="calendar">
+    <div class="section-head">
+      <div>
+        <h2>Forward Calendar</h2>
+        <div class="sub">Rate decisions and elections across jurisdictions we're covering</div>
+      </div>
+    </div>
+    <div class="cal-grid">
+      <div class="card cal-card">
+        <h4>Interest rate decisions</h4>
+        <div class="cal-row"><div class="cal-date">17<br>SEP</div><div class="cal-info"><div class="cal-title">US Federal Reserve — FOMC decision</div><div class="cal-desc">Watch for dollar and crude demand implications</div></div></div>
+        <div class="cal-row"><div class="cal-date">24<br>SEP</div><div class="cal-info"><div class="cal-title">European Central Bank — rate decision</div><div class="cal-desc">Relevant to Gasoil / NWE product demand</div></div></div>
+        <div class="cal-row"><div class="cal-date">23<br>OCT</div><div class="cal-info"><div class="cal-title">Central Bank of Nigeria — MPC meeting</div><div class="cal-desc">Naira and local fuel pricing implications</div></div></div>
+      </div>
+      <div class="card cal-card">
+        <h4>Elections &amp; political calendar</h4>
+        <div class="cal-row"><div class="cal-date">Q1<br>2027</div><div class="cal-info"><div class="cal-title">Ghana — by-elections watch</div><div class="cal-desc">Currency and policy continuity signal</div></div></div>
+        <div class="cal-row"><div class="cal-date">2027</div><div class="cal-info"><div class="cal-title">Nigeria — pre-election positioning begins</div><div class="cal-desc">Historically raises FX and subsidy-policy volatility</div></div></div>
+        <div class="cal-row"><div class="cal-date">TBC</div><div class="cal-info"><div class="cal-title">South Africa — coalition stability watch</div><div class="cal-desc">Monitoring for rand-linked exposure shifts</div></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ OVERALL POSITION ============ -->
+  <section id="overall">
+    <div class="section-head">
+      <div>
+        <h2>Overall Risk Position</h2>
+        <div class="sub">One glance, one decision — is today green, amber or red?</div>
+      </div>
+    </div>
+    <div class="overall-grid">
+      <div class="card gauge-card">
+        <canvas id="gaugeChart" width="260" height="150"></canvas>
+        <div style="font-family:'Source Serif 4',serif; font-size:20px; font-weight:700; margin-top:6px; color:var(--yellow);">ELEVATED</div>
+        <div style="font-size:12px; color:var(--muted); margin-top:2px;">Driven by Gasoil (red) and Hormuz corridor (high)</div>
+      </div>
+      <div class="card cat-card">
+        <div class="cat-row"><span class="cat-name"><span class="dot red"></span>Market Risk</span><span class="mat-pill catastrophic">High</span></div>
+        <div class="cat-row"><span class="cat-name"><span class="dot red"></span>Macro / Geopolitical Risk</span><span class="mat-pill catastrophic">High</span></div>
+        <div class="cat-row"><span class="cat-name"><span class="dot yellow"></span>Company Exposures</span><span class="mat-pill major">Moderate</span></div>
+        <div class="cat-row"><span class="cat-name"><span class="dot green"></span>Trader Desk Alignment</span><span class="mat-pill" style="background:var(--green-bg);color:var(--green);">Low</span></div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer>Stay alert. Read the pattern. Advise with conviction.</footer>
+
+<script>
+Chart.defaults.font.family = "'IBM Plex Sans', sans-serif";
+Chart.defaults.color = '#5d6683';
+
+// Std-dev band chart
+const labels = ['08 Mar','22 Mar','05 Apr','19 Apr','03 May','17 May','31 May','14 Jun','28 Jun','12 Jul','26 Jul','09 Aug','23 Aug','06 Sep','14 Sep'];
+const brentMean = 89.10, brentSd = 4.5;
+const gasoilMean = 1190.40, gasoilSd = 92;
+
+function band(mean, sd, n, mult){ return Array(n).fill(mean + mult*sd); }
+function noisyLine(mean, sd, n, endVal){
+  const out=[];
+  for(let i=0;i<n;i++){
+    const t = i/(n-1);
+    const base = mean + (endVal-mean)*Math.pow(t,2.2);
+    const noise = Math.sin(i*1.7)*sd*0.35 + Math.cos(i*0.9)*sd*0.25;
+    out.push(+(base+noise).toFixed(2));
+  }
+  out[n-1]=endVal;
+  return out;
+}
+
+const brentSeries = noisyLine(brentMean, brentSd, labels.length, 93.96);
+const gasoilSeries = noisyLine(gasoilMean, gasoilSd, labels.length, 1408.75).map(v=>+(v/12).toFixed(2)); // scaled to share axis visually
+
+new Chart(document.getElementById('stdevChart'), {
+  type:'line',
+  data:{
+    labels,
+    datasets:[
+      {label:'+2σ band', data: band(brentMean,brentSd,labels.length,2), borderColor:'rgba(198,59,59,.35)', borderDash:[4,4], pointRadius:0, borderWidth:1},
+      {label:'-2σ band', data: band(brentMean,brentSd,labels.length,-2), borderColor:'rgba(47,143,91,.35)', borderDash:[4,4], pointRadius:0, borderWidth:1, fill:'-1', backgroundColor:'rgba(219,229,246,.4)'},
+      {label:'Dated Brent ($/bbl)', data: brentSeries, borderColor:'#2c539e', backgroundColor:'#2c539e', pointRadius:0, borderWidth:2, tension:.3},
+      {label:'Gasoil (scaled)', data: gasoilSeries, borderColor:'#c23b3b', backgroundColor:'#c23b3b', pointRadius:0, borderWidth:2, tension:.3}
+    ]
+  },
+  options:{
+    responsive:true,
+    interaction:{mode:'index',intersect:false},
+    plugins:{legend:{position:'bottom', labels:{boxWidth:10, font:{size:10.5}}}},
+    scales:{
+      y:{grid:{color:'#eef0f6'}, ticks:{font:{size:10.5}}},
+      x:{grid:{display:false}, ticks:{font:{size:9.5}, maxRotation:0, autoSkip:true, maxTicksLimit:8}}
+    }
+  }
+});
+
+// Gauge (half-doughnut)
+new Chart(document.getElementById('gaugeChart'), {
+  type:'doughnut',
+  data:{
+    datasets:[{
+      data:[33,33,34],
+      backgroundColor:['#2f8f5b','#dba53c','#c23b3b'],
+      borderWidth:0,
+      circumference:180,
+      rotation:270,
+      cutout:'72%'
+    }]
+  },
+  options:{
+    plugins:{legend:{display:false}, tooltip:{enabled:false}},
+    events:[]
+  }
+});
+</script>
+
+</body>
+</html>

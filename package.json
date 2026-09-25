@@ -5,7 +5,8 @@
   "description": "Server-backed Daily Oil Trading Risk Dashboard",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test tests/market-architecture.test.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

@@ -48,13 +48,12 @@ const upload = multer({
 });
 
 const DEFAULT_MACRO_METRICS = [
-  ["headline-inflation", "fa-solid fa-cart-shopping", "Headline Inflation", "Mar 2026", "15.38%"],
-  ["food-inflation", "fa-solid fa-bowl-food", "Food Inflation", "Mar 2026", "14.31%"],
-  ["core-inflation", "fa-solid fa-bullseye", "Core Inflation", "Mar 2026", "16.21%"],
-  ["real-gdp-q4", "fa-solid fa-chart-line", "Real GDP Growth", "Q4 2025", "4.07%"],
-  ["real-gdp-fy", "fa-solid fa-chart-column", "Real GDP Growth", "FY 2025", "3.87%"],
-  ["pmi", "fa-solid fa-industry", "PMI", "Mar 2026", "51.9"],
-  ["oil-production", "fa-solid fa-oil-well", "Oil Production", "Mar 2026", "1.546 mbpd"]
+  ["headline-inflation", "fa-solid fa-cart-shopping", "Headline Inflation", "Unavailable", "Data unavailable"],
+  ["food-inflation", "fa-solid fa-bowl-food", "Food Inflation", "Unavailable", "Data unavailable"],
+  ["core-inflation", "fa-solid fa-bullseye", "Core Inflation", "Unavailable", "Data unavailable"],
+  ["real-gdp-growth", "fa-solid fa-chart-line", "Real GDP Growth", "Unavailable", "Data unavailable"],
+  ["pmi", "fa-solid fa-industry", "PMI", "Unavailable", "Data unavailable"],
+  ["oil-production", "fa-solid fa-oil-well", "Crude Oil Production", "Unavailable", "Data unavailable"]
 ];
 
 const DEFAULT_NEWS = [
@@ -597,6 +596,53 @@ function updateRiskCategory(category, rating, userId) {
   `).run(rating, nowIso(), userId, category);
 }
 
+const FASTAPI_URL = process.env.FASTAPI_URL || "http://127.0.0.1:8000";
+const FASTAPI_ROUTES = ["/api/health", "/api/market", "/api/dashboard", "/api/macro", "/api/ai", "/api/news"];
+
+async function sendFastApiResponse(response, res) {
+  res.status(response.status);
+
+  response.headers.forEach((val, key) => {
+    const lowerKey = key.toLowerCase();
+    if (!["content-encoding", "content-length", "transfer-encoding"].includes(lowerKey)) {
+      res.setHeader(key, val);
+    }
+  });
+
+  res.send(await response.text());
+}
+
+// Register this before body parsers so the browser's multipart stream and boundary
+// reach FastAPI unchanged.
+app.post("/api/market/import-excel", async (req, res) => {
+  try {
+    const targetUrl = new URL(req.originalUrl || req.url, FASTAPI_URL);
+    const headers = { ...req.headers };
+    delete headers.host;
+    delete headers.connection;
+    delete headers["keep-alive"];
+    delete headers["proxy-authenticate"];
+    delete headers["proxy-authorization"];
+    delete headers.te;
+    delete headers.trailer;
+    delete headers.upgrade;
+
+    const response = await fetch(targetUrl.toString(), {
+      method: req.method,
+      headers,
+      body: req,
+      duplex: "half"
+    });
+    await sendFastApiResponse(response, res);
+  } catch (err) {
+    res.status(503).json({
+      error: "FASTAPI_UNAVAILABLE",
+      message: "Live market data temporarily unavailable.",
+      detail: err.message
+    });
+  }
+});
+
 app.use(express.json({ limit: "1mb" }));
 app.use(session({
   name: "oilRiskAdmin",
@@ -609,6 +655,49 @@ app.use(session({
     secure: false
   }
 }));
+
+app.use(async (req, res, next) => {
+  if (FASTAPI_ROUTES.some((prefix) => req.path === prefix || req.path.startsWith(prefix + "/"))) {
+    try {
+      const targetUrl = new URL(req.originalUrl || req.url, FASTAPI_URL);
+      const headers = { ...req.headers };
+      delete headers.host;
+      delete headers.connection;
+      delete headers["keep-alive"];
+      delete headers["proxy-authenticate"];
+      delete headers["proxy-authorization"];
+      delete headers.te;
+      delete headers.trailer;
+      delete headers.upgrade;
+
+      const init = {
+        method: req.method,
+        headers
+      };
+
+      if (req.method !== "GET" && req.method !== "HEAD" && req.body) {
+        init.body = JSON.stringify(req.body);
+        delete headers["content-length"];
+        delete headers["transfer-encoding"];
+        headers["content-type"] = "application/json";
+      }
+
+      const response = await fetch(targetUrl.toString(), init);
+      await sendFastApiResponse(response, res);
+      return;
+    } catch (err) {
+      console.error(`FastAPI proxy failed for ${req.method} ${req.originalUrl || req.url}:`, err.message);
+      res.status(503).json({
+        error: "FASTAPI_UNAVAILABLE",
+        message: "Live market data temporarily unavailable.",
+        detail: err.message
+      });
+      return;
+    }
+  }
+  next();
+});
+
 app.use(express.static(PUBLIC_DIR));
 
 app.post("/api/auth/login", async (req, res) => {

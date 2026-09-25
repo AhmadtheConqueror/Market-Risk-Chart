@@ -2,582 +2,306 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-
-  <meta
-    name="viewport"
-    content="width=device-width, initial-scale=1.0"
-  />
-
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Daily Oil Trading Risk Dashboard</title>
-
   <link rel="stylesheet" href="style.css" />
-
-  <!-- Font Awesome icons -->
-  <link
-    rel="stylesheet"
-    href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
-  />
-
-  <!-- Chart.js -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-
-  <!-- Chart.js zoom and pan support -->
-  <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.2.0/dist/chartjs-plugin-zoom.min.js"></script>
-
-  <!-- SheetJS for local Excel upload -->
-  <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+  <script src="vendor/xlsx.full.min.js"></script>
 </head>
-
 <body>
-
-  <!-- =========================================================
-       HEADER
-  ========================================================== -->
-  <header class="top-header">
-
-    <div class="brand-block">
-
-      <div class="oil-icon">
-        <i class="fa-solid fa-droplet"></i>
-      </div>
-
-      <div>
-        <h1>Daily Oil Trading Risk Dashboard</h1>
-
-        <div class="header-nav">
-          Market
-          <span>|</span>
-          Macro / Geopolitical
-          <span>|</span>
-          Company Exposures
-        </div>
-      </div>
-
-    </div>
-
-    <div class="header-right">
-
-      <div class="date-block">
-        <i class="fa-regular fa-calendar-days"></i>
-
+  <header class="executive-header">
+    <div class="header-inner">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">O</div>
         <div>
-          <small>As at</small>
-          <strong id="dashboardDate">09 Sep 2026</strong>
+          <h1>Daily Oil Trading Risk Dashboard</h1>
+          <p>Trading &amp; Market Risk Intelligence</p>
         </div>
       </div>
 
-      <div class="header-divider"></div>
-
-      <div class="header-message">
-        <strong>Monitor | Assess | Mitigate</strong>
-        <span>Price. Volatility. Geopolitics. Exposure.</span>
+      <div class="header-meta" aria-label="Dashboard metadata">
+        <div class="meta-block">
+          <span>Data Source</span>
+          <strong id="dataSourceLabel">Demo</strong>
+        </div>
+        <div class="meta-block">
+          <span>Last Refreshed</span>
+          <strong id="lastRefreshed">--</strong>
+        </div>
+        <div class="meta-block">
+          <span>As At</span>
+          <strong id="dashboardDate">--</strong>
+        </div>
       </div>
-
     </div>
 
+    <nav class="section-tabs" aria-label="Dashboard sections">
+      <a href="#briefing">Trending News &amp; Market Watch</a>
+      <a href="#market">Market Risk</a>
+      <a href="#spreads">Product Spreads</a>
+      <a href="#macro">Macro Drivers</a>
+      <a href="#geo">Geopolitical Risk</a>
+      <a href="#company">Company Exposures</a>
+      <a href="#calendar">Forward Calendar</a>
+      <a href="#overall">Overall Position</a>
+    </nav>
   </header>
 
+  <div class="trigger-strip" aria-live="polite">
+    <div class="trigger-inner">
+      <strong>Today's Triggers</strong>
+      <div id="triggerCounts" class="trigger-counts"></div>
+      <span class="trigger-separator" aria-hidden="true">|</span>
+      <span id="marketRefreshText">Last market refresh: --</span>
+    </div>
+  </div>
 
-  <!-- =========================================================
-       DATA CONTROLS
-  ========================================================== -->
-  <section
-    class="data-toolbar"
-    aria-label="Dashboard data controls"
-  >
+  <div id="apiUnavailableBanner" class="api-unavailable-banner" hidden>
+    <span class="api-banner-icon">⚠</span>
+    <span id="apiUnavailableMessage">Live market data temporarily unavailable.</span>
+  </div>
 
-    <div class="data-source-card">
-      <span class="toolbar-eyebrow">Data Source</span>
+  <main class="dashboard-shell">
+    <section id="briefing" class="dashboard-section">
+      <div class="two-column-briefing">
+        <article class="panel">
+          <div class="section-head">
+            <div>
+              <h2>Trending News &amp; Market Watch</h2>
+              <p>Verified official energy headlines by region</p>
+            </div>
+            <div id="briefingActions" class="section-actions"></div>
+          </div>
+          <div id="dailyBriefingContent"></div>
+        </article>
 
-      <div class="data-source-main">
-        <span
-          id="dataSourceDot"
-          class="source-dot source-demo"
-        ></span>
-        <strong id="dataSourceLabel">Demo</strong>
+        <article class="panel advisor-panel">
+          <div class="section-head dark">
+            <div>
+              <h2>Risk Advisor's View</h2>
+              <p>Threats, opportunities and watch items</p>
+            </div>
+            <div id="advisorActions" class="section-actions"></div>
+          </div>
+          <div id="riskAdvisorContent"></div>
+        </article>
       </div>
 
-      <small id="dataSourceDetail">Development sample data</small>
-    </div>
-
-    <div class="refresh-card">
-      <span class="toolbar-eyebrow">Last Refreshed</span>
-      <strong id="lastRefreshed">--</strong>
-    </div>
-
-    <div
-      id="dataLoadMessage"
-      class="data-load-message"
-      role="status"
-      aria-live="polite"
-    ></div>
-
-  </section>
-
-
-  <!-- =========================================================
-       MAIN DASHBOARD
-  ========================================================== -->
-  <main class="dashboard">
-
-    <!-- =====================================================
-         LEFT COLUMN
-    ====================================================== -->
-    <section class="dashboard-column">
-
-      <!-- MARKET RISK -->
-      <div class="panel">
-
-        <div class="panel-header market-header">
-
-          <div class="panel-icon">
-            <i class="fa-solid fa-chart-column"></i>
-          </div>
-
+      <article class="panel ai-analysis-panel" aria-live="polite">
+        <div class="section-head ai-analysis-head">
           <div>
-            <h2>Market Risk</h2>
-            <p>Oil prices, refined products and market dynamics</p>
+            <h2>AI Dashboard Analysis</h2>
+            <p>Interpretation of the verified dashboard snapshot</p>
           </div>
-
+          <div class="ai-analysis-actions">
+            <span id="aiAnalysisGeneratedAt" class="ai-generated-at"></span>
+            <button id="aiRefreshButton" class="mini-button" type="button">Refresh AI Analysis</button>
+          </div>
         </div>
-
-
-      </div>
-
-
-      <div class="panel market-risk-table-panel">
-
-        <div class="table-wrapper">
-
-          <table class="risk-table">
-
-            <thead>
-              <tr>
-                <th>KRI</th>
-                <th>Latest</th>
-                <th>1D Change</th>
-                <th>30D Trend</th>
-              </tr>
-            </thead>
-
-            <tbody id="marketRiskTable"></tbody>
-
-          </table>
-
+        <div id="aiAnalysisStatus" class="ai-analysis-status" role="status"></div>
+        <div id="aiAnalysisContent" class="ai-analysis-content">
+          <p class="empty-state">No saved AI analysis is available yet.</p>
         </div>
-
-      </div>
-
-
-      <!-- BRENT PRICE CHART -->
-      <div class="panel chart-panel">
-
-        <div class="section-title">
-          <i class="fa-solid fa-chart-line"></i>
-          Dated Brent Price Trend
-          <span>&mdash; Year to Date (USD/bbl)</span>
-        </div>
-
-        <div class="chart-container">
-          <canvas id="brentChart"></canvas>
-        </div>
-
-      </div>
-
-
-      <!-- CRACK SPREADS -->
-      <div class="panel chart-panel">
-
-        <div class="section-title">
-          <i class="fa-solid fa-chart-simple"></i>
-
-          Refined Product Prices vs Dated Brent
-
-          <span>
-            &mdash; Current ($/bbl)
-          </span>
-        </div>
-
-        <div class="chart-container crack-chart">
-          <canvas id="crackChart"></canvas>
-        </div>
-
-      </div>
-
+        <p class="ai-disclosure">AI-generated interpretation only. Backend-verified data, source status and missing values remain authoritative.</p>
+      </article>
     </section>
 
-
-
-    <!-- =====================================================
-         MIDDLE COLUMN
-    ====================================================== -->
-    <section class="dashboard-column">
-
-      <!-- MACRO / GEOPOLITICAL -->
-      <div class="panel">
-
-        <div class="panel-header macro-header">
-
-          <div class="panel-icon">
-            <i class="fa-solid fa-globe"></i>
-          </div>
-
-          <div>
-            <h2>Macro / Geopolitical Risk</h2>
-            <p>Global events, policy and supply disruptions</p>
-          </div>
-
+    <section id="market" class="dashboard-section">
+      <div class="section-head">
+        <div>
+          <h2>Market Risk</h2>
+          <p>Key market benchmarks with current movement and 90-day statistical position</p>
         </div>
-
-
+        <div class="market-head-actions">
+          <button id="marketRefreshButton" class="market-refresh-btn" type="button" title="Fetch latest market data from OilPriceAPI via backend">
+            <span class="refresh-icon">↻</span> <span id="marketRefreshLabel">Refresh Market Data</span>
+          </button>
+          <span id="marketWindowNote" class="section-tag">90 calendar-day window</span>
+        </div>
       </div>
 
+      <div id="marketProductGrid" class="product-grid"></div>
 
-      <div class="panel macro-summary-panel">
-
-          <div class="macro-summary-titlebar">
-            <div class="macro-summary-heading">
-              <span class="macro-summary-badge">1</span>
-              <span id="macroSummarySectionTitle">PRICES, GROWTH &amp; REAL ECONOMY</span>
+      <div class="analytics-grid">
+        <article id="spreads" class="panel chart-panel large-chart-panel">
+          <div class="chart-title">
+            <div>
+              <h3>Product Spreads</h3>
+              <p>Refined Products vs Brent Futures</p>
             </div>
-
           </div>
-
-          <div id="macroSummaryTiles" class="macro-summary-tiles"></div>
-
-        </div>
-
-      </div>
-
-
-      <!-- TRENDING NEWS -->
-      <div class="watchlist trending-news-panel">
-
-        <div class="trending-news-header">
-          <div class="watch-icon">
-            <i class="fa-solid fa-binoculars"></i>
+          <div class="chart-frame spread-frame">
+            <canvas id="crackChart"></canvas>
           </div>
+        </article>
 
-          <h3>Trending News &amp; Market Watch</h3>
-
-        </div>
-
-        <div id="trendingNewsItems" class="trending-news-items"></div>
-
-      </div>
-
-       <div id="crudeSupplyRiskPanel" class="panel chart-panel core-export-panel">
-
-        <div class="section-title core-export-title">
-          <div class="core-export-title-main">
-            <i class="fa-solid fa-chart-line"></i>
-            <span>Crude Supply Risk Total Global Price Risk</span>
-          </div>
-
-          <div class="core-export-controls">
-            <div
-              id="coreExportRangeControls"
-              class="core-export-range-controls"
-              role="group"
-              aria-label="Chart range"
-            >
-              <button type="button" data-core-export-range="1M" aria-pressed="false">1M</button>
-              <button type="button" data-core-export-range="3M" aria-pressed="false">3M</button>
-              <button type="button" data-core-export-range="6M" aria-pressed="true">6M</button>
-              <button type="button" data-core-export-range="9M" aria-pressed="false">9M</button>
-              <button type="button" data-core-export-range="1Y" aria-pressed="false">1Y</button>
+        <article class="panel outlier-panel">
+          <div class="chart-title">
+            <div>
+              <h3>Outlier Scan</h3>
+              <p>Current z-score across market products</p>
             </div>
-
-            <button
-              id="coreExportResetZoom"
-              class="core-export-icon-button"
-              type="button"
-              title="Reset zoom"
-              aria-label="Reset zoom"
-            >
-              <i class="fa-solid fa-rotate-left"></i>
-            </button>
-
-            <button
-              id="coreExportFullscreen"
-              class="core-export-icon-button"
-              type="button"
-              title="Maximize chart"
-              aria-label="Maximize chart"
-            >
-              <i class="fa-solid fa-expand"></i>
-            </button>
           </div>
-        </div>
-
-        <div class="chart-container core-export-chart crude-risk-chart-container">
-          <canvas id="geoChart"></canvas>
-        </div>
-
-      </div> 
-
+          <div id="outlierScan"></div>
+        </article>
+      </div>
     </section>
 
-
-
-    <!-- =====================================================
-         RIGHT COLUMN
-    ====================================================== -->
-    <section class="dashboard-column">
-
-      <!-- COMPANY EXPOSURES -->
-      <div class="panel">
-
-        <div class="panel-header company-header">
-
-          <div class="panel-icon">
-            <i class="fa-solid fa-building"></i>
-          </div>
-
-          <div>
-            <h2>Company Exposures</h2>
-            <p>Operational, credit and counterparty risks</p>
-          </div>
-
+    <section id="desk" class="dashboard-section">
+      <div class="section-head">
+        <div>
+          <h2>Trader Desk Pulse</h2>
+          <p>Counterparty colour, risk strategy and what to watch this session</p>
         </div>
+        <div id="deskActions" class="section-actions"></div>
+      </div>
+      <div id="traderDeskContent" class="desk-grid"></div>
+    </section>
 
+    <section id="macro" class="dashboard-section">
+      <div class="section-head">
+        <div>
+          <h2>Macro Drivers</h2>
+          <p>Prices, growth, activity and oil production context</p>
+        </div>
+        <div id="macroActions" class="section-actions"></div>
+      </div>
+      <div id="macroMetricGrid" class="macro-grid"></div>
+      <article id="macroWhyItMatters" class="panel narrative-panel"></article>
+    </section>
 
+    <section id="chain" class="dashboard-section">
+      <div class="section-head">
+        <div>
+          <h2>Pattern &amp; Inference</h2>
+          <p>Manual logic chain from indicator to trading implication</p>
+        </div>
+        <div id="chainActions" class="section-actions"></div>
+      </div>
+      <article id="inferenceContent" class="panel inference-panel"></article>
+    </section>
+
+    <section id="geo" class="dashboard-section">
+      <div class="section-head">
+        <div>
+          <h2>Geopolitical Risk</h2>
+          <p>Jurisdiction cards for current development and business implication</p>
+        </div>
+        <div id="geoActions" class="section-actions"></div>
+      </div>
+      <div id="geopoliticalCards" class="geo-grid"></div>
+    </section>
+
+    <section id="company" class="dashboard-section">
+      <div class="section-head">
+        <div>
+          <h2>Company Exposures</h2>
+          <p>Full risk register and management actions</p>
+        </div>
       </div>
 
-
-      <!-- RISK REGISTER -->
-      <div class="panel risk-register-panel">
-
-        <div class="section-title risk-register-title">
-          <div class="risk-register-heading">
-            <i class="fa-solid fa-clipboard-list"></i>
-            Risk Register
-          </div>
-
+      <article class="panel register-panel">
+        <div class="subsection-head">
+          <h3>Risk Register</h3>
+          <div id="registerActions" class="section-actions"></div>
         </div>
-
-        <div class="risk-register-wrapper">
+        <div class="table-wrap">
           <table class="risk-register-table">
             <thead>
               <tr>
                 <th>S/N</th>
                 <th>Risk Category</th>
-                <th>Risk Event</th>
-                <th>Mitigant</th>
-                <th class="materiality-cell">Materiality (M / M+1)</th>
-                <th class="risk-owner-cell">Risk Owner</th>
+                <th>Materiality</th>
+                <th>Trend</th>
+                <th>Risk Owner</th>
               </tr>
             </thead>
-
             <tbody id="riskRegisterBody"></tbody>
           </table>
         </div>
+      </article>
 
-        <div class="risk-trend-legend">
-          <strong>Risk Trend Legend:</strong>
-
-          <div class="risk-trend-legend-items">
-            <div class="risk-trend-legend-item">
-              <span class="legend-arrow increased" aria-hidden="true">&uarr;</span>
-              <span>
-                Risk trending upwards
-                <small>(increasing risk)</small>
-              </span>
-            </div>
-
-            <div class="risk-trend-legend-item">
-              <span class="legend-arrow unchanged" aria-hidden="true">&harr;</span>
-              <span>
-                Neutral &ndash; Risk exposure
-                <small>remains the same</small>
-              </span>
-            </div>
-
-            <div class="risk-trend-legend-item">
-              <span class="legend-arrow reduced" aria-hidden="true">&darr;</span>
-              <span>
-                Risk trending downwards
-                <small>(decreasing risk)</small>
-              </span>
-            </div>
-          </div>
+      <article class="panel actions-panel">
+        <div class="subsection-head">
+          <h3>Management Actions</h3>
+          <div id="managementActionsControls" class="section-actions"></div>
         </div>
-
-      </div>
-
-
-      <!-- TAKEAWAYS -->
-      <div class="panel takeaways-panel">
-
-        <div class="takeaway-header">
-          <div class="takeaway-header-title">
-            <i class="fa-solid fa-lightbulb"></i>
-            <span>Management Actions</span>
-          </div>
-
-        </div>
-
-        <div
-          id="takeawayList"
-          class="takeaway-list"
-        ></div>
-
-
-        <div class="recommended-actions">
-
-          <div class="target-icon">
-            <i class="fa-solid fa-bullseye"></i>
-          </div>
-
-          <div>
-
-            <h3>Recommended Actions</h3>
-
-            <ul id="recommendedActions"></ul>
-
-          </div>
-
-        </div>
-
-      </div>
-
-
-      <!-- OVERALL RISK -->
-      <div class="panel overall-panel">
-
-        <div class="overall-header">
-          <i class="fa-solid fa-shield-halved"></i>
-          Overall Risk Position
-        </div>
-
-
-        <div class="overall-content">
-
-          <div class="risk-gauge">
-
-            <div
-              id="overallGauge"
-              class="gauge"
-            >
-
-              <div class="gauge-cover">
-
-                <div class="needle"></div>
-                <div class="needle-center"></div>
-
-                <strong id="overallRiskLabel">MODERATE</strong>
-                <small>Overall Risk</small>
-
-              </div>
-
-            </div>
-
-          </div>
-
-
-          <div class="risk-category">
-
-            <h3>Risk by Category</h3>
-
-            <div id="categoryRiskRows"></div>
-
-          </div>
-
-        </div>
-
-      </div>
-
+        <div id="managementActionsContent" class="management-grid"></div>
+      </article>
     </section>
 
+    <section id="calendar" class="dashboard-section">
+      <div class="section-head">
+        <div>
+          <h2>Forward Calendar</h2>
+          <p>Market, economic, business and political events</p>
+        </div>
+        <div id="calendarActions" class="section-actions"></div>
+      </div>
+      <div id="forwardCalendarContent" class="calendar-grid"></div>
+    </section>
+
+    <section id="overall" class="dashboard-section">
+      <div class="section-head">
+        <div>
+          <h2>Overall Risk Position</h2>
+          <p>Low, Moderate, High and Catastrophic risk scale</p>
+        </div>
+      </div>
+      <div class="overall-grid">
+        <article class="panel gauge-panel">
+          <div id="overallGauge" class="risk-gauge" data-rating="moderate">
+            <div class="gauge-cover">
+              <div class="needle"></div>
+              <div class="needle-center"></div>
+              <strong id="overallRiskLabel">Moderate</strong>
+              <small>Overall Risk</small>
+            </div>
+          </div>
+          <p id="overallRiskDriver" class="gauge-caption"></p>
+        </article>
+
+        <article class="panel category-panel">
+          <div class="subsection-head">
+            <h3>Risk by Category</h3>
+            <div id="categoryActions" class="section-actions"></div>
+          </div>
+          <div id="categoryRiskRows"></div>
+        </article>
+      </div>
+    </section>
   </main>
 
-
-
-  <!-- =========================================================
-       FOOTER
-  ========================================================== -->
-  <footer>
-
-    <div class="footer-message">
-
-      <i class="fa-solid fa-database"></i>
-
-      <strong>
-        Stay alert. Manage risk. Protect margins.
-      </strong>
-
+  <footer class="footer">
+    <div>
+      <strong>Stay alert. Manage risk. Protect margins.</strong>
+      <span id="dataLoadMessage" role="status" aria-live="polite"></span>
     </div>
-
-    <div class="footer-icons">
-
-      <i class="fa-solid fa-oil-well"></i>
-      <i class="fa-solid fa-ship"></i>
-      <i class="fa-solid fa-industry"></i>
-      <button
-        id="adminModeButton"
-        class="footer-admin-button"
-        type="button"
-        aria-label="Admin login"
-        title="Admin"
-      >
-        <i class="fa-solid fa-user-shield"></i>
-      </button>
-
-    </div>
-
+    <button id="adminModeButton" class="footer-admin-button" type="button">Admin</button>
   </footer>
 
-  <div
-    id="adminLoginModal"
-    class="admin-modal"
-    hidden
-  >
-    <div class="admin-modal-card">
-      <button
-        id="adminLoginClose"
-        class="admin-modal-close"
-        type="button"
-        aria-label="Close admin login"
-      >
-        <i class="fa-solid fa-xmark"></i>
-      </button>
-
+  <div id="adminLoginModal" class="modal" hidden>
+    <div class="modal-card login-card">
+      <button id="adminLoginClose" class="modal-close" type="button" aria-label="Close">x</button>
       <h2>Admin Login</h2>
-
       <label>
         Username
         <input id="adminUsername" type="text" autocomplete="username" />
       </label>
-
       <label>
         Password
         <input id="adminPassword" type="password" autocomplete="current-password" />
       </label>
-
-      <button id="adminLoginSubmit" type="button">Login</button>
+      <button id="adminLoginSubmit" class="primary-button" type="button">Login</button>
       <p id="adminLoginMessage" class="admin-message" role="status"></p>
     </div>
   </div>
 
-  <div
-    id="adminPanelModal"
-    class="admin-modal"
-    hidden
-  >
-    <div class="admin-modal-card admin-panel-card">
-      <button
-        id="adminPanelClose"
-        class="admin-modal-close"
-        type="button"
-        aria-label="Close admin controls"
-      >
-        <i class="fa-solid fa-xmark"></i>
-      </button>
-
+  <div id="adminPanelModal" class="modal" hidden>
+    <div class="modal-card admin-panel-card">
+      <button id="adminPanelClose" class="modal-close" type="button" aria-label="Close">x</button>
       <h2>Admin Controls</h2>
 
-      <section>
+      <section class="admin-section">
         <h3>Data Management</h3>
         <dl class="admin-status-list">
           <div>
@@ -597,254 +321,35 @@
             <dd id="adminKrisMapped">--</dd>
           </div>
         </dl>
-
-        <div class="admin-action-grid admin-data-actions">
-          <label
-            class="admin-action-button"
-            for="excelUpload"
-          >
-            <i class="fa-solid fa-file-arrow-up"></i>
-            <span>Upload Excel</span>
-          </label>
-
-          <input
-            id="excelUpload"
-            class="visually-hidden"
-            type="file"
-            accept=".xlsx,.xls"
-          />
-
-          <button
-            id="downloadSampleWorkbookButton"
-            class="admin-action-button secondary"
-            type="button"
-          >
-            <i class="fa-solid fa-file-excel"></i>
-            <span>Sample XLSX</span>
-          </button>
-
-          <button
-            id="refreshDataButton"
-            class="admin-action-button"
-            type="button"
-          >
-            <i class="fa-solid fa-rotate"></i>
-            <span>Refresh Data</span>
-          </button>
+        <div class="admin-action-row">
+          <button id="loadExcelButton" class="admin-action-button" type="button">Load / Refresh Excel</button>
+          <input id="excelUpload" class="visually-hidden" type="file" accept=".xlsx" />
         </div>
+        <div id="excelUploadStatus" class="excel-upload-status" hidden role="status" aria-live="polite"></div>
       </section>
 
-      <section>
+      <section class="admin-section">
         <h3>Editable Sections</h3>
-
-        <div class="admin-edit-sections">
-          <article class="admin-edit-group">
-            <div class="admin-edit-copy">
-              <strong>Macro Metrics</strong>
-              <span>Prices, Growth &amp; Real Economy strip</span>
-            </div>
-
-            <div class="admin-action-row">
-              <button
-                id="macroSummaryEditButton"
-                class="admin-action-button"
-                type="button"
-                data-admin-scroll-target=".macro-summary-panel"
-              >
-                <i class="fa-solid fa-pen-to-square"></i>
-                Edit
-              </button>
-
-              <button
-                id="macroSummarySaveButton"
-                class="admin-action-button"
-                type="button"
-                hidden
-              >
-                <i class="fa-solid fa-floppy-disk"></i>
-                Save
-              </button>
-
-              <button
-                id="macroSummaryCancelButton"
-                class="admin-action-button secondary"
-                type="button"
-                hidden
-              >
-                Cancel
-              </button>
-            </div>
-          </article>
-
-          <article class="admin-edit-group">
-            <div class="admin-edit-copy">
-              <strong>Trending News &amp; Market Watch</strong>
-              <span>Regions, subsections and headlines</span>
-            </div>
-
-            <div class="admin-action-row">
-              <button
-                id="trendingNewsAddRegionButton"
-                class="admin-action-button"
-                type="button"
-                data-admin-scroll-target=".trending-news-panel"
-                hidden
-              >
-                <i class="fa-solid fa-layer-group"></i>
-                Add Region
-              </button>
-
-              <button
-                id="trendingNewsEditButton"
-                class="admin-action-button"
-                type="button"
-                data-admin-scroll-target=".trending-news-panel"
-              >
-                <i class="fa-solid fa-pen-to-square"></i>
-                Edit
-              </button>
-
-              <button
-                id="trendingNewsSaveButton"
-                class="admin-action-button"
-                type="button"
-                hidden
-              >
-                <i class="fa-solid fa-floppy-disk"></i>
-                Save
-              </button>
-
-              <button
-                id="trendingNewsCancelButton"
-                class="admin-action-button secondary"
-                type="button"
-                hidden
-              >
-                Cancel
-              </button>
-            </div>
-          </article>
-
-          <article class="admin-edit-group">
-            <div class="admin-edit-copy">
-              <strong>Risk Register</strong>
-              <span>Rows, owners, materiality and trend</span>
-            </div>
-
-            <div class="admin-action-row">
-              <button
-                id="riskRegisterAddButton"
-                class="admin-action-button"
-                type="button"
-                data-admin-scroll-target=".risk-register-panel"
-                hidden
-              >
-                <i class="fa-solid fa-plus"></i>
-                Add Row
-              </button>
-
-              <button
-                id="riskRegisterEditButton"
-                class="admin-action-button"
-                type="button"
-                data-admin-scroll-target=".risk-register-panel"
-              >
-                <i class="fa-solid fa-pen-to-square"></i>
-                Edit
-              </button>
-            </div>
-          </article>
-
-          <article class="admin-edit-group">
-            <div class="admin-edit-copy">
-              <strong>Management Actions</strong>
-              <span>Actions and recommended actions</span>
-            </div>
-
-            <div class="admin-action-row">
-              <button
-                id="managementActionsAddButton"
-                class="admin-action-button"
-                type="button"
-                data-admin-scroll-target=".takeaways-panel"
-                hidden
-              >
-                <i class="fa-solid fa-plus"></i>
-                Add Action
-              </button>
-
-              <button
-                id="recommendedActionsAddButton"
-                class="admin-action-button"
-                type="button"
-                data-admin-scroll-target=".takeaways-panel"
-                hidden
-              >
-                <i class="fa-solid fa-plus"></i>
-                Add Recommended
-              </button>
-
-              <button
-                id="managementActionsEditButton"
-                class="admin-action-button"
-                type="button"
-                data-admin-scroll-target=".takeaways-panel"
-              >
-                <i class="fa-solid fa-pen-to-square"></i>
-                Edit
-              </button>
-
-              <button
-                id="managementActionsSaveButton"
-                class="admin-action-button"
-                type="button"
-                hidden
-              >
-                <i class="fa-solid fa-floppy-disk"></i>
-                Save
-              </button>
-
-              <button
-                id="managementActionsCancelButton"
-                class="admin-action-button secondary"
-                type="button"
-                hidden
-              >
-                Cancel
-              </button>
-            </div>
-          </article>
-
-          <article class="admin-edit-group">
-            <div class="admin-edit-copy">
-              <strong>Risk by Category</strong>
-              <span>Overall Risk category ratings</span>
-            </div>
-
-            <div class="admin-action-row">
-              <button
-                class="admin-action-button"
-                type="button"
-                data-admin-scroll-target=".overall-panel"
-              >
-                <i class="fa-solid fa-shield-halved"></i>
-                Open
-              </button>
-            </div>
-          </article>
-        </div>
+        <div id="adminEditList" class="admin-edit-list"></div>
       </section>
 
       <button id="adminLogoutButton" class="admin-logout-button" type="button">Logout</button>
     </div>
   </div>
 
-
+  <script>window.OIL_RISK_RUNTIME_CONFIG = { aiEnabled: true };</script>
+  <script src="js/config/dashboardConfig.js"></script>
   <script src="data.js"></script>
+  <script src="js/market/marketDataModel.js"></script>
+  <script src="js/adapters/legacyMarketDataAdapter.js"></script>
+  <script src="js/services/marketCalculationService.js"></script>
+  <script src="js/services/marketDataService.js"></script>
+  <script src="js/services/excelImportUiService.js"></script>
+  <script src="js/services/newsService.js"></script>
+  <script src="js/services/aiService.js"></script>
   <script src="risk-engine.js"></script>
   <script src="charts.js"></script>
   <script src="excel.js"></script>
   <script src="dashboard.js"></script>
-
 </body>
 </html>

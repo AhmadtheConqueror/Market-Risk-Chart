@@ -1,125 +1,169 @@
 // ============================================================
-// DASHBOARD RENDERING
-// DOM rendering and user controls only. Data arrives as dashboardData.
+// PORTABLE DASHBOARD RENDERER
+// Browser-only admin mode, Excel upload and local editable content.
 // ============================================================
 
-(function registerOilRiskDashboard(global) {
+(function registerPortableOilRiskDashboard(global) {
   "use strict";
 
-  const AUTO_REFRESH_INTERVAL = 15 * 60 * 1000;
-  const TABLE_IDS = {
-    market: "marketRiskTable",
-    macro: "macroRiskTable"
+  const PRODUCT_ORDER = [
+    { key: "brent", kriCode: "MR_BRENT", name: "Dated Brent" },
+    { key: "naphtha", kriCode: "MR_NAPHTHA", name: "Naphtha" },
+    { key: "gasoil", kriCode: "MR_GASOIL", name: "Gasoil" },
+    { key: "gasoline", kriCode: "MR_GASOLINE", name: "Gasoline" },
+    { key: "forcados", kriCode: "MR_FORCADOS", name: "Forcados" },
+    { key: "wti", kriCode: "MR_WTI", name: "WTI Cushing" },
+    { key: "jet", kriCode: "MR_JET", name: "Jet" }
+  ];
+  const Z_SCORE_RISK_CONFIG = {
+    normalMaxAbsZ: 1,
+    watchMaxAbsZ: 2,
+    outlierMaxAbsZ: 3,
+    labels: {
+      normal: "Low",
+      watch: "Moderate",
+      outlier: "High",
+      extreme: "Catastrophic"
+    }
   };
-  const RISK_RATINGS = ["Low", "Moderate", "High"];
-  const RATING_SCORES = {
+  const RISK_SCALE = ["Low", "Moderate", "High", "Catastrophic"];
+  const RISK_SCORES = {
     Low: 1,
     Moderate: 2,
-    High: 3
+    High: 3,
+    Catastrophic: 4
   };
-  const RISK_REGISTER_STORAGE_KEY = "daily-oil-trading-risk-register";
-  const MACRO_SUMMARY_STORAGE_KEY = "daily-oil-trading-macro-summary";
-  const TRENDING_NEWS_STORAGE_KEY = "daily-oil-trading-trending-news";
-  const MANAGEMENT_ACTIONS_STORAGE_KEY = "daily-oil-trading-management-actions";
-  const WORKBOOK_HANDLE_DB_NAME = "daily-oil-trading-workbook";
-  const WORKBOOK_HANDLE_STORE_NAME = "handles";
-  const WORKBOOK_HANDLE_KEY = "activeWorkbook";
   const MATERIALITY_OPTIONS = ["Low", "Moderate", "Major", "Catastrophic"];
   const MOVEMENT_OPTIONS = [
-    { value: "increased", label: "Increased", symbol: "\u2191" },
+    { value: "increased", label: "Increasing", symbol: "\u2191" },
     { value: "unchanged", label: "Unchanged", symbol: "\u2194" },
-    { value: "reduced", label: "Reduced", symbol: "\u2193" }
+    { value: "reduced", label: "Decreasing", symbol: "\u2193" }
   ];
+  const STORAGE_KEYS = {
+    riskRegister: "daily-oil-trading-risk-register",
+    macroSummary: "daily-oil-trading-macro-summary",
+    briefing: "daily-oil-trading-trending-news",
+    managementActions: "daily-oil-trading-management-actions",
+    riskAdvisor: "daily-oil-trading-risk-advisor",
+    traderDesk: "daily-oil-trading-trader-desk",
+    inference: "daily-oil-trading-inference-chain",
+    geopolitical: "daily-oil-trading-geopolitical-cards",
+    forwardCalendar: "daily-oil-trading-forward-calendar",
+    categoryOverrides: "daily-oil-trading-category-risk-overrides"
+  };
+  const SECTION_TARGETS = {
+    briefing: "#briefing",
+    advisor: "#briefing",
+    desk: "#desk",
+    macro: "#macro",
+    chain: "#chain",
+    geo: "#geo",
+    register: "#company",
+    actions: "#company",
+    calendar: "#calendar",
+    categories: "#overall"
+  };
+  const EDITABLE_SECTIONS = [
+    { id: "briefing", label: "Trending News & Market Watch", detail: "Verified regional energy headlines" },
+    { id: "advisor", label: "Risk Advisor", detail: "Threat, opportunity and watch commentary" },
+    { id: "desk", label: "Trader Desk Pulse", detail: "Counterparty colour and session watch" },
+    { id: "macro", label: "Macro Drivers", detail: "Macro values and why-it-matters note" },
+    { id: "chain", label: "Pattern & Inference", detail: "Manual indicator-to-implication chain" },
+    { id: "geo", label: "Geopolitical Risk", detail: "Jurisdiction ratings and implications" },
+    { id: "register", label: "Risk Register", detail: "Rows, materiality, trend and owners" },
+    { id: "actions", label: "Management Actions", detail: "Takeaways and recommended actions" },
+    { id: "calendar", label: "Forward Calendar", detail: "Market/economic and business/political events" },
+    { id: "categories", label: "Risk by Category", detail: "Overall-risk category selectors" }
+  ];
+
+  // Local-only gate for a portable static file. This is not secure server authentication.
+  const ADMIN_USERNAME = "riskadmin";
+  const ADMIN_PASSWORD = "Password123";
+
   const DEFAULT_RISK_REGISTER_ROWS = [
     {
       riskCategory: "Capital Adequacy Risk",
-      riskEvent: "Capital ratios could weaken under stress or rapid balance-sheet growth.",
-      mitigant: "Maintain capital buffers and monitor internal limits monthly.",
       materiality: "Major",
       movement: "unchanged",
       riskOwner: "CFO"
     },
     {
       riskCategory: "Legal and Contract Management Risk",
-      riskEvent: "Contract disputes or weak terms may create loss, delay or unenforceable obligations.",
-      mitigant: "Use approved templates, legal review and a central contract register.",
       materiality: "Moderate",
       movement: "unchanged",
       riskOwner: "General Counsel"
     },
     {
       riskCategory: "Counterparty Default Risk",
-      riskEvent: "A customer or trading counterparty may default and create receivable losses.",
-      mitigant: "Apply counterparty limits, collateral requirements and enhanced monitoring.",
       materiality: "Major",
       movement: "increased",
       riskOwner: "Chief Risk Officer"
     },
     {
       riskCategory: "Project Selection and Planning Risk",
-      riskEvent: "Poor project selection or planning may increase cost and delay delivery.",
-      mitigant: "Use stage-gate approval, feasibility checks and milestone reviews.",
       materiality: "Moderate",
       movement: "unchanged",
       riskOwner: "COO"
     },
     {
       riskCategory: "Market Opportunity Risk",
-      riskEvent: "Missed or mispriced opportunities may reduce earnings and market share.",
-      mitigant: "Use market intelligence, approval thresholds and scenario review.",
       materiality: "Moderate",
       movement: "reduced",
       riskOwner: "Commercial Director"
     }
   ];
+  const MACRO_INDICATOR_DEFINITIONS = [
+    {
+      key: "headline_inflation",
+      title: "Headline Inflation",
+      unit: "%",
+      source: "National Bureau of Statistics Nigeria"
+    },
+    {
+      key: "food_inflation",
+      title: "Food Inflation",
+      unit: "%",
+      source: "National Bureau of Statistics Nigeria"
+    },
+    {
+      key: "core_inflation",
+      title: "Core Inflation",
+      unit: "%",
+      source: "National Bureau of Statistics Nigeria"
+    },
+    {
+      key: "real_gdp_growth",
+      title: "Real GDP Growth",
+      unit: "%",
+      source: "National Bureau of Statistics Nigeria"
+    },
+    {
+      key: "nigeria_pmi",
+      title: "PMI",
+      unit: "index",
+      source: "Stanbic IBTC Bank / S&P Global"
+    },
+    {
+      key: "crude_oil_production",
+      title: "Crude Oil Production",
+      unit: "mbpd",
+      source: "Nigerian Upstream Petroleum Regulatory Commission",
+      note: "Crude only, excluding condensate"
+    }
+  ];
   const DEFAULT_MACRO_SUMMARY = {
-    sectionTitle: "PRICES, GROWTH & REAL ECONOMY",
-    metrics: [
-      {
-        iconClass: "fa-solid fa-cart-shopping",
-        title: "Headline Inflation",
-        period: "Mar 2026",
-        value: "15.38%"
-      },
-      {
-        iconClass: "fa-solid fa-bowl-food",
-        title: "Food Inflation",
-        period: "Mar 2026",
-        value: "14.31%"
-      },
-      {
-        iconClass: "fa-solid fa-bullseye",
-        title: "Core Inflation",
-        period: "Mar 2026",
-        value: "16.21%"
-      },
-      {
-        iconClass: "fa-solid fa-chart-line",
-        title: "Real GDP Growth",
-        period: "Q4 2025",
-        value: "4.07%"
-      },
-      {
-        iconClass: "fa-solid fa-chart-column",
-        title: "Real GDP Growth",
-        period: "FY 2025",
-        value: "3.87%"
-      },
-      {
-        iconClass: "fa-solid fa-industry",
-        title: "PMI",
-        period: "Mar 2026",
-        value: "51.9"
-      },
-      {
-        iconClass: "fa-solid fa-oil-well",
-        title: "Oil Production",
-        period: "Mar 2026",
-        value: "1.546 mbpd"
-      }
-    ]
+    metrics: MACRO_INDICATOR_DEFINITIONS.map((indicator) => ({
+      key: indicator.key,
+      title: indicator.title,
+      period: "Unavailable",
+      value: "Data unavailable",
+      source: indicator.source,
+      freshnessStatus: "unavailable",
+      note: indicator.note || ""
+    })),
+    whyItMatters: ""
   };
-  const DEFAULT_TRENDING_NEWS = [
+  const DEFAULT_BRIEFING = [
     {
       id: "international",
       title: "International",
@@ -193,161 +237,178 @@
       ]
     }
   ];
-
-  let activeDashboardData = global.OilRiskData.cloneDashboardData(global.dashboardData);
-  let enrichedDashboardData = null;
-  let lastUploadedFile = null;
-  let currentWorkbookHandle = null;
-  let pendingWorkbookSelectionMode = "";
-  let openCategoryRiskId = "";
-  let riskRegisterRows = [];
-  let riskRegisterEditing = false;
-  let macroSummary = null;
-  let macroSummaryEditing = false;
-  let trendingNewsItems = [];
-  let trendingNewsOriginalItems = [];
-  let trendingNewsEditing = false;
-  let managementActions = null;
-  let managementActionsOriginal = null;
-  let managementActionsEditing = false;
-  let adminState = {
-    authenticated: false,
-    role: ""
+  const DEFAULT_RISK_ADVISOR = [
+    { classification: "Threat", confidence: "Unassigned", commentary: "" },
+    { classification: "Opportunity", confidence: "Unassigned", commentary: "" },
+    { classification: "Watch", confidence: "Unassigned", commentary: "" }
+  ];
+  const DEFAULT_TRADER_DESK = [
+    { title: "Counterparty Colour", body: "" },
+    { title: "Risk Strategy", body: "" },
+    { title: "What to Watch This Session", body: "" }
+  ];
+  const DEFAULT_INFERENCE_CHAIN = {
+    nodes: [
+      { label: "Indicator", detail: "" },
+      { label: "Intermediate effect", detail: "" },
+      { label: "Operational/business effect", detail: "" },
+      { label: "Oil/trading implication", detail: "" }
+    ],
+    commentary: ""
   };
-  let serverModeAvailable = global.location && /^https?:$/.test(global.location.protocol);
-  const categoryRiskOverrides = {};
+  const DEFAULT_GEOPOLITICAL_CARDS = [
+    { jurisdiction: "Nigeria", rating: "Moderate", currentDevelopment: "", implication: "" },
+    { jurisdiction: "Africa", rating: "Moderate", currentDevelopment: "", implication: "" },
+    { jurisdiction: "Middle East / Global Supply Routes", rating: "Moderate", currentDevelopment: "", implication: "" },
+    { jurisdiction: "International", rating: "Moderate", currentDevelopment: "", implication: "" }
+  ];
+  const DEFAULT_FORWARD_CALENDAR = {
+    marketEvents: [],
+    businessEvents: []
+  };
 
-  document.addEventListener("DOMContentLoaded", initialiseDashboard);
+  let activeDashboardData = null;
+  let enrichedDashboardData = null;
+  let currentMarketStats = [];
+  let lastUploadedFile = null;
+  let adminState = {
+    authenticated: false
+  };
+  let riskRegisterRows = [];
+  let macroSummary = null;
+  let briefingItems = [];
+  let newsItems = [];
+  let newsLoaded = false;
+  let newsLoading = false;
+  let selectedWorkbookFile = null;
+  let riskAdvisorItems = [];
+  let traderDeskItems = [];
+  let inferenceChain = null;
+  let geopoliticalCards = [];
+  let forwardCalendar = null;
+  let managementActions = null;
+  let categoryRiskOverrides = {};
+  let latestAIAnalysis = null;
+  let aiAnalysisEnvelope = null;
+  let openCategoryRiskId = "";
+  const editModes = {
+    briefing: false,
+    advisor: false,
+    desk: false,
+    macro: false,
+    chain: false,
+    geo: false,
+    register: false,
+    actions: false,
+    calendar: false
+  };
+  const editSnapshots = {};
+
+  document.addEventListener("DOMContentLoaded", () => {
+    initialiseDashboard().catch(() => {
+      setDataMessage("Unable to prepare market data. Legacy dashboard data remains available.", true);
+    });
+  });
 
   async function initialiseDashboard() {
+    try {
+      activeDashboardData = await global.OilRiskMarketDataService.prepareDashboardData(
+        global.OilRiskData.cloneDashboardData(global.dashboardData)
+      );
+    } catch (_) {
+      if (global.OilRiskConfig && typeof global.OilRiskConfig.isApiMode === "function" && global.OilRiskConfig.isApiMode()) {
+        activeDashboardData = {
+          ...global.dashboardData,
+          apiUnavailable: true,
+          apiErrorMessage: "Live market data temporarily unavailable.",
+          marketObservations: [],
+          source: { type: "api", label: "OilPriceAPI (Unavailable)", unavailable: true }
+        };
+      } else {
+        activeDashboardData = global.OilRiskMarketDataService.prepareLegacyDashboardData(
+          global.OilRiskData.cloneDashboardData(global.dashboardData)
+        );
+      }
+    }
     riskRegisterRows = loadRiskRegisterRows();
-    macroSummary = loadMacroSummary();
-    trendingNewsItems = loadTrendingNews();
+    macroSummary = loadMacroSummary(activeDashboardData);
+    briefingItems = loadBriefingItems();
+    riskAdvisorItems = loadRiskAdvisorItems();
+    traderDeskItems = loadTraderDeskItems();
+    inferenceChain = loadInferenceChain();
+    geopoliticalCards = loadGeopoliticalCards();
+    forwardCalendar = loadForwardCalendar();
     managementActions = loadManagementActions(activeDashboardData);
-    bindControls();
+    categoryRiskOverrides = loadCategoryRiskOverrides();
 
-    if (serverModeAvailable) {
-      await refreshAdminStatus();
-      await loadServerEditableContent();
-      const serverData = await fetchServerMarketData();
-      renderDashboard(serverData || activeDashboardData);
-    } else {
-      renderDashboard(activeDashboardData);
+    if (apiModeEnabled()) {
+      await loadLatestNews();
     }
 
+    bindControls();
+    renderDashboard(activeDashboardData);
     updateAdminUi();
-
-    setInterval(() => {
-      refreshData({ isAutomatic: true });
-    }, AUTO_REFRESH_INTERVAL);
+    loadLatestAIAnalysis();
   }
 
   function bindControls() {
-    const uploadInput = document.getElementById("excelUpload");
-    const uploadTrigger = document.querySelector('label[for="excelUpload"]');
-    const refreshButton = document.getElementById("refreshDataButton");
-    const sampleButton = document.getElementById("downloadSampleWorkbookButton");
-    const riskRegisterEditButton = document.getElementById("riskRegisterEditButton");
-    const riskRegisterAddButton = document.getElementById("riskRegisterAddButton");
-    const macroSummaryEditButton = document.getElementById("macroSummaryEditButton");
-    const macroSummarySaveButton = document.getElementById("macroSummarySaveButton");
-    const macroSummaryCancelButton = document.getElementById("macroSummaryCancelButton");
-    const trendingNewsEditButton = document.getElementById("trendingNewsEditButton");
-    const trendingNewsSaveButton = document.getElementById("trendingNewsSaveButton");
-    const trendingNewsCancelButton = document.getElementById("trendingNewsCancelButton");
-    const trendingNewsAddRegionButton = document.getElementById("trendingNewsAddRegionButton");
-    const managementActionsEditButton = document.getElementById("managementActionsEditButton");
-    const managementActionsSaveButton = document.getElementById("managementActionsSaveButton");
-    const managementActionsCancelButton = document.getElementById("managementActionsCancelButton");
-    const managementActionsAddButton = document.getElementById("managementActionsAddButton");
-    const recommendedActionsAddButton = document.getElementById("recommendedActionsAddButton");
+    const excelInput = document.getElementById("excelUpload");
+    const loadExcelButton = document.getElementById("loadExcelButton");
     const adminButton = document.getElementById("adminModeButton");
     const adminLoginSubmit = document.getElementById("adminLoginSubmit");
     const adminLoginClose = document.getElementById("adminLoginClose");
     const adminPanelClose = document.getElementById("adminPanelClose");
     const adminLogoutButton = document.getElementById("adminLogoutButton");
+    const marketRefreshButton = document.getElementById("marketRefreshButton");
+    const aiRefreshButton = document.getElementById("aiRefreshButton");
 
-    if (uploadInput) {
-      uploadInput.addEventListener("change", handleExcelUpload);
+    if (excelInput) {
+      excelInput.addEventListener("change", handleExcelUpload);
     }
 
-    if (uploadTrigger) {
-      uploadTrigger.addEventListener("click", handleWorkbookPickerClick);
-    }
+    if (loadExcelButton) {
+      loadExcelButton.addEventListener("click", () => {
+        if (!isAdmin()) {
+          return;
+        }
 
-    if (refreshButton) {
-      refreshButton.addEventListener("click", () => {
-        refreshData({ isAutomatic: false });
+        excelInput.click();
       });
     }
 
-    if (sampleButton) {
-      sampleButton.addEventListener("click", handleSampleWorkbookDownload);
+    if (marketRefreshButton) {
+      marketRefreshButton.addEventListener("click", handleMarketRefresh);
     }
 
-    if (riskRegisterEditButton) {
-      riskRegisterEditButton.addEventListener("click", handleRiskRegisterEdit);
-    }
-
-    if (riskRegisterAddButton) {
-      riskRegisterAddButton.addEventListener("click", addRiskRegisterRow);
-    }
-
-    if (macroSummaryEditButton) {
-      macroSummaryEditButton.addEventListener("click", handleMacroSummaryEdit);
-    }
-
-    if (macroSummarySaveButton) {
-      macroSummarySaveButton.addEventListener("click", saveMacroSummary);
-    }
-
-    if (macroSummaryCancelButton) {
-      macroSummaryCancelButton.addEventListener("click", cancelMacroSummary);
-    }
-
-    if (trendingNewsEditButton) {
-      trendingNewsEditButton.addEventListener("click", handleTrendingNewsEdit);
-    }
-
-    if (trendingNewsSaveButton) {
-      trendingNewsSaveButton.addEventListener("click", saveTrendingNews);
-    }
-
-    if (trendingNewsCancelButton) {
-      trendingNewsCancelButton.addEventListener("click", cancelTrendingNews);
-    }
-
-    if (trendingNewsAddRegionButton) {
-      trendingNewsAddRegionButton.addEventListener("click", addTrendingNewsRegion);
-    }
-
-    if (managementActionsEditButton) {
-      managementActionsEditButton.addEventListener("click", handleManagementActionsEdit);
-    }
-
-    if (managementActionsSaveButton) {
-      managementActionsSaveButton.addEventListener("click", saveManagementActions);
-    }
-
-    if (managementActionsCancelButton) {
-      managementActionsCancelButton.addEventListener("click", cancelManagementActions);
-    }
-
-    if (managementActionsAddButton) {
-      managementActionsAddButton.addEventListener("click", addManagementAction);
-    }
-
-    if (recommendedActionsAddButton) {
-      recommendedActionsAddButton.addEventListener("click", addRecommendedAction);
+    if (aiRefreshButton) {
+      aiRefreshButton.addEventListener("click", handleAIRefresh);
     }
 
     if (adminButton) {
-      adminButton.addEventListener("click", handleAdminButtonClick);
+      adminButton.addEventListener("click", () => {
+        if (isAdmin()) {
+          openAdminPanel();
+        } else {
+          openModal("adminLoginModal");
+        }
+      });
     }
 
     if (adminLoginSubmit) {
       adminLoginSubmit.addEventListener("click", handleAdminLogin);
     }
+
+    ["adminUsername", "adminPassword"].forEach((id) => {
+      const input = document.getElementById(id);
+
+      if (input) {
+        input.addEventListener("keydown", (event) => {
+          if (event.key === "Enter") {
+            handleAdminLogin();
+          }
+        });
+      }
+    });
 
     if (adminLoginClose) {
       adminLoginClose.addEventListener("click", () => closeModal("adminLoginModal"));
@@ -361,247 +422,320 @@
       adminLogoutButton.addEventListener("click", handleAdminLogout);
     }
 
-    document.querySelectorAll("[data-admin-scroll-target]").forEach((button) => {
-      button.addEventListener("click", () => {
-        const target = document.querySelector(button.dataset.adminScrollTarget);
-
-        closeModal("adminPanelModal");
-
-        if (target) {
-          target.scrollIntoView({ behavior: "smooth", block: "start" });
-        }
-      });
-    });
-
-    document.addEventListener("click", handleCategoryRiskControlClick);
-    document.addEventListener("click", handleRiskRegisterRowAction);
-    document.addEventListener("click", handleTrendingNewsAction);
-    document.addEventListener("click", handleManagementActionsAction);
+    document.addEventListener("click", handleDocumentClick);
+    document.addEventListener("change", handleDocumentChange);
   }
 
-  function isAdmin() {
-    return Boolean(adminState && adminState.authenticated && adminState.role === "admin");
-  }
-
-  async function apiRequest(endpoint, options) {
-    const settings = options || {};
-    const response = await fetch(endpoint, {
-      credentials: "same-origin",
-      headers: {
-        ...(settings.body && !(settings.body instanceof FormData) ? { "Content-Type": "application/json" } : {}),
-        ...(settings.headers || {})
-      },
-      ...settings
-    });
-    const payload = await response.json().catch(() => ({}));
-
-    if (!response.ok) {
-      throw new Error(payload.error || "Request failed.");
-    }
-
-    return payload;
-  }
-
-  async function refreshAdminStatus() {
-    try {
-      adminState = await apiRequest("/api/auth/status");
-    } catch (error) {
-      serverModeAvailable = false;
-      adminState = {
-        authenticated: false,
-        role: ""
-      };
-    }
-  }
-
-  async function fetchServerMarketData() {
-    try {
-      return await apiRequest("/api/market-data");
-    } catch (error) {
-      setDataMessage("Unable to load server market data. Showing local sample.", true);
-      return null;
-    }
-  }
-
-  async function loadServerEditableContent() {
-    try {
-      const [
-        macroData,
-        newsData,
-        riskRegisterData,
-        managementData,
-        categoryData
-      ] = await Promise.all([
-        apiRequest("/api/macro-metrics"),
-        apiRequest("/api/news"),
-        apiRequest("/api/risk-register"),
-        apiRequest("/api/management-actions"),
-        apiRequest("/api/risk-categories")
-      ]);
-
-      macroSummary = normalizeMacroSummary(macroData);
-      trendingNewsItems = normalizeTrendingNews(newsData);
-      riskRegisterRows = Array.isArray(riskRegisterData)
-        ? riskRegisterData.map(normalizeRiskRegisterRow)
-        : riskRegisterRows;
-      managementActions = normalizeManagementActions(managementData);
-
-      if (Array.isArray(categoryData)) {
-        categoryData.forEach((item) => {
-          const rating = normalizeManualRating(item.rating);
-
-          if (item.category && rating) {
-            categoryRiskOverrides[item.category] = rating;
-          }
-        });
-      }
-    } catch (error) {
-      // Local-storage defaults remain active if the backend is unavailable.
-    }
-  }
-
-  function updateAdminUi() {
-    const admin = isAdmin();
-    const adminButton = document.getElementById("adminModeButton");
-
-    if (document.body) {
-      document.body.classList.toggle("is-admin", admin);
-    }
-
-    if (!admin) {
-      const wasEditingMacroSummary = macroSummaryEditing;
-      const wasEditingTrendingNews = trendingNewsEditing;
-      const wasEditingRiskRegister = riskRegisterEditing;
-      const wasEditingManagementActions = managementActionsEditing;
-
-      macroSummaryEditing = false;
-      trendingNewsEditing = false;
-      riskRegisterEditing = false;
-      managementActionsEditing = false;
-
-      if (wasEditingMacroSummary) {
-        renderMacroSummary();
-      }
-
-      if (wasEditingTrendingNews) {
-        renderTrendingNews();
-      }
-
-      if (wasEditingRiskRegister) {
-        renderRiskRegister();
-      }
-
-      if (wasEditingManagementActions) {
-        renderManagementActions(enrichedDashboardData || activeDashboardData);
-      }
-    }
-
-    document.querySelectorAll("[data-admin-only]").forEach((element) => {
-      element.hidden = !admin;
-    });
-
-    if (adminButton) {
-      adminButton.classList.toggle("is-admin", admin);
-      adminButton.title = admin ? "Admin controls" : "Admin login";
-      adminButton.setAttribute("aria-label", admin ? "Open admin controls" : "Admin login");
-    }
-
-    updateMacroSummaryControls();
-    updateTrendingNewsControls();
-    updateRiskRegisterControls();
-    updateManagementActionsControls();
-  }
-
-  function handleAdminButtonClick() {
-    if (isAdmin()) {
-      openAdminPanel();
+  async function handleMarketRefresh() {
+    const btn = document.getElementById("marketRefreshButton");
+    const label = document.getElementById("marketRefreshLabel") || btn;
+    if (!btn) {
       return;
     }
 
-    openModal("adminLoginModal");
+    const originalText = label.textContent;
+    btn.disabled = true;
+    label.textContent = "Refreshing…";
+
+    try {
+      const result = await global.OilRiskMarketDataService.refreshMarketData();
+      if (result && result.configured) {
+        activeDashboardData = await global.OilRiskMarketDataService.prepareDashboardData(
+          global.OilRiskData.cloneDashboardData(activeDashboardData)
+        );
+        renderDashboard(activeDashboardData);
+        label.textContent = "Refreshed ✓";
+        setTimeout(() => {
+          label.textContent = originalText;
+          btn.disabled = false;
+        }, 2000);
+      } else {
+        label.textContent = "Refresh unavailable";
+        setTimeout(() => {
+          label.textContent = originalText;
+          btn.disabled = false;
+        }, 2500);
+      }
+    } catch (_) {
+      label.textContent = "Refresh failed";
+      setTimeout(() => {
+        label.textContent = originalText;
+        btn.disabled = false;
+      }, 2500);
+    }
   }
 
-  async function handleAdminLogin() {
+  function handleDocumentClick(event) {
+    const button = event.target.closest("[data-action]");
+
+    if (!button) {
+      return;
+    }
+
+    const action = button.dataset.action;
+    const section = button.dataset.section || "";
+
+    if (action === "open-section") {
+      closeModal("adminPanelModal");
+      scrollToSection(button.dataset.target || SECTION_TARGETS[section]);
+      return;
+    }
+
+    if (!isAdmin()) {
+      return;
+    }
+
+    if (action === "edit-section") {
+      startEdit(section);
+      return;
+    }
+
+    if (action === "save-section") {
+      saveSection(section);
+      return;
+    }
+
+    if (action === "cancel-section") {
+      cancelSection(section);
+      return;
+    }
+
+    if (action === "refresh-news") {
+      handleNewsRefresh();
+      return;
+    }
+
+    handleEditAction(action, button);
+  }
+
+  function handleDocumentChange(event) {
+    const select = event.target.closest("[data-category-risk-select]");
+
+    if (!select || !isAdmin()) {
+      return;
+    }
+
+    const categoryId = select.dataset.categoryRiskSelect;
+    const rating = normalizeRiskRating(select.value);
+
+    if (!categoryId || !rating) {
+      return;
+    }
+
+    categoryRiskOverrides[categoryId] = rating;
+    saveJson(STORAGE_KEYS.categoryOverrides, categoryRiskOverrides);
+    renderDashboard(activeDashboardData);
+  }
+
+  function handleEditAction(action, button) {
+    if (action === "add-risk-row") {
+      riskRegisterRows = readRiskRegisterDraft();
+      riskRegisterRows.push({
+        riskCategory: "",
+        materiality: "Moderate",
+        movement: "unchanged",
+        riskOwner: ""
+      });
+      renderDashboard(activeDashboardData);
+      return;
+    }
+
+    if (action === "delete-risk-row") {
+      riskRegisterRows = readRiskRegisterDraft();
+      riskRegisterRows.splice(Number(button.dataset.index), 1);
+      renderDashboard(activeDashboardData);
+      return;
+    }
+
+    if (action === "add-briefing-region") {
+      briefingItems = readBriefingDraft();
+      briefingItems.push({
+        id: uniqueId("region"),
+        title: "New Region",
+        sections: []
+      });
+      renderDashboard(activeDashboardData);
+      return;
+    }
+
+    if (action === "delete-briefing-region") {
+      briefingItems = readBriefingDraft();
+      briefingItems.splice(Number(button.dataset.region), 1);
+      renderDashboard(activeDashboardData);
+      return;
+    }
+
+    if (action === "add-briefing-section") {
+      briefingItems = readBriefingDraft();
+      const region = briefingItems[Number(button.dataset.region)];
+
+      if (region) {
+        region.sections.push({
+          id: uniqueId("section"),
+          title: "Market",
+          items: []
+        });
+      }
+
+      renderDashboard(activeDashboardData);
+      return;
+    }
+
+    if (action === "delete-briefing-section") {
+      briefingItems = readBriefingDraft();
+      const region = briefingItems[Number(button.dataset.region)];
+
+      if (region) {
+        region.sections.splice(Number(button.dataset.sectionIndex), 1);
+      }
+
+      renderDashboard(activeDashboardData);
+      return;
+    }
+
+    if (action === "add-briefing-item") {
+      briefingItems = readBriefingDraft();
+      const region = briefingItems[Number(button.dataset.region)];
+      const section = region && region.sections[Number(button.dataset.sectionIndex)];
+
+      if (section) {
+        section.items.push({
+          id: uniqueId("item"),
+          headline: ""
+        });
+      }
+
+      renderDashboard(activeDashboardData);
+      return;
+    }
+
+    if (action === "delete-briefing-item") {
+      briefingItems = readBriefingDraft();
+      const region = briefingItems[Number(button.dataset.region)];
+      const section = region && region.sections[Number(button.dataset.sectionIndex)];
+
+      if (section) {
+        section.items.splice(Number(button.dataset.item), 1);
+      }
+
+      renderDashboard(activeDashboardData);
+      return;
+    }
+
+    if (action === "add-calendar-row") {
+      forwardCalendar = readCalendarDraft();
+      const group = button.dataset.group === "businessEvents" ? "businessEvents" : "marketEvents";
+      forwardCalendar[group].push({ date: "", title: "", note: "" });
+      renderDashboard(activeDashboardData);
+      return;
+    }
+
+    if (action === "delete-calendar-row") {
+      forwardCalendar = readCalendarDraft();
+      const group = button.dataset.group === "businessEvents" ? "businessEvents" : "marketEvents";
+      forwardCalendar[group].splice(Number(button.dataset.index), 1);
+      renderDashboard(activeDashboardData);
+      return;
+    }
+
+    if (action === "add-management-item") {
+      managementActions = readManagementDraft();
+      const list = button.dataset.list === "recommendedActions" ? "recommendedActions" : "takeaways";
+      managementActions[list].push("");
+      renderDashboard(activeDashboardData);
+      return;
+    }
+
+    if (action === "delete-management-item") {
+      managementActions = readManagementDraft();
+      const list = button.dataset.list === "recommendedActions" ? "recommendedActions" : "takeaways";
+      managementActions[list].splice(Number(button.dataset.index), 1);
+      renderDashboard(activeDashboardData);
+    }
+  }
+
+  function isAdmin() {
+    return Boolean(adminState.authenticated);
+  }
+
+  function apiModeEnabled() {
+    return Boolean(global.OilRiskConfig && typeof global.OilRiskConfig.isApiMode === "function" && global.OilRiskConfig.isApiMode());
+  }
+
+  async function loadLatestNews() {
+    newsLoading = true;
+    try {
+      const response = await global.OilRiskNewsService.getLatestNews({ limit: 20 });
+      newsItems = response && Array.isArray(response.items) ? response.items : [];
+    } catch (_) {
+      newsItems = [];
+    } finally {
+      newsLoaded = true;
+      newsLoading = false;
+    }
+  }
+
+  async function handleNewsRefresh() {
+    if (!isAdmin() || newsLoading) {
+      return;
+    }
+
+    newsLoading = true;
+    renderDashboard(activeDashboardData);
+    try {
+      const summary = await global.OilRiskNewsService.refreshNews();
+      await loadLatestNews();
+      setDataMessage(`News refreshed: ${summary.stored || 0} new, ${summary.updated || 0} updated, ${summary.failed || 0} failed source/item checks.`);
+      renderDashboard(activeDashboardData);
+    } catch (error) {
+      newsLoading = false;
+      setDataMessage(error.message || "Unable to refresh verified news.", true);
+      renderDashboard(activeDashboardData);
+    }
+  }
+
+  function handleAdminLogin() {
     const username = document.getElementById("adminUsername");
     const password = document.getElementById("adminPassword");
     const message = document.getElementById("adminLoginMessage");
+    const usernameValue = username ? username.value.trim() : "";
+    const passwordValue = password ? password.value : "";
 
     if (message) {
       message.textContent = "";
     }
 
-    if (!serverModeAvailable) {
-      if (message) {
-        message.textContent = global.location && global.location.protocol === "file:"
-          ? "Admin login works from http://localhost:3000, not the file path."
-          : "Admin login requires the local dashboard server.";
+    if (usernameValue === ADMIN_USERNAME && passwordValue === ADMIN_PASSWORD) {
+      adminState.authenticated = true;
+
+      if (password) {
+        password.value = "";
       }
 
-      return;
-    }
-
-    try {
-      adminState = await apiRequest("/api/auth/login", {
-        method: "POST",
-        body: JSON.stringify({
-          username: username ? username.value.trim() : "",
-          password: password ? password.value : ""
-        })
-      });
       closeModal("adminLoginModal");
-      updateAdminUi();
-      await refreshAdminPanelStatus();
-      openModal("adminPanelModal");
-    } catch (error) {
-      if (message) {
-        message.textContent = error.message === "Failed to fetch"
-          ? "Could not reach the dashboard server. Open http://localhost:3000."
-          : error.message || "Invalid username or password.";
-      }
-    }
-  }
-
-  async function handleAdminLogout() {
-    try {
-      await apiRequest("/api/auth/logout", { method: "POST" });
-    } catch (error) {
-      // Still clear the local state if the session is already gone.
-    }
-
-    adminState = {
-      authenticated: false,
-      role: ""
-    };
-    closeModal("adminPanelModal");
-    updateAdminUi();
-  }
-
-  async function openAdminPanel() {
-    await refreshAdminPanelStatus();
-    openModal("adminPanelModal");
-  }
-
-  async function refreshAdminPanelStatus() {
-    if (!isAdmin()) {
+      renderDashboard(activeDashboardData);
+      openAdminPanel();
       return;
     }
 
-    try {
-      const status = await apiRequest("/api/admin/market-data-status");
-      const upload = status.activeUpload || {};
-
-      setText("adminCurrentMarketFile", upload.original_filename || "--");
-      setText("adminLastUploaded", upload.uploaded_at ? formatDateTime(upload.uploaded_at) : "--");
-      setText("adminRecordsLoaded", upload.record_count ?? "--");
-      setText("adminKrisMapped", upload.total_kri_count
-        ? `${upload.mapped_kri_count} / ${upload.total_kri_count}`
-        : "--");
-    } catch (error) {
-      setText("adminCurrentMarketFile", "--");
-      setText("adminLastUploaded", "--");
-      setText("adminRecordsLoaded", "--");
-      setText("adminKrisMapped", "--");
+    if (message) {
+      message.textContent = "Invalid username or password.";
     }
+  }
+
+  function handleAdminLogout() {
+    adminState.authenticated = false;
+    Object.keys(editModes).forEach((key) => {
+      editModes[key] = false;
+      delete editSnapshots[key];
+    });
+    closeModal("adminPanelModal");
+    renderDashboard(activeDashboardData);
+  }
+
+  function openAdminPanel() {
+    renderAdminPanel();
+    openModal("adminPanelModal");
   }
 
   function openModal(id) {
@@ -623,1616 +757,1740 @@
   async function handleExcelUpload(event) {
     const file = event.target.files && event.target.files[0];
 
-    if (!file) {
+    if (!file || !isAdmin()) {
       return;
     }
 
-    if (!isAdmin()) {
-      setDataMessage("Admin login is required to replace market data.", true);
-      event.target.value = "";
+    selectedWorkbookFile = file;
+    await uploadWorkbook(file, event.target);
+  }
+
+  async function uploadWorkbook(file, input) {
+    const uploadUi = global.OilRiskExcelImportUi;
+
+    if (!file || !isAdmin() || !uploadUi) {
       return;
     }
 
-    if (serverModeAvailable) {
-      await uploadMarketDataWorkbook(file);
-      event.target.value = "";
-      return;
-    }
-
-    currentWorkbookHandle = null;
-    setLoading(true);
-    setDataMessage(pendingWorkbookSelectionMode === "refresh"
-      ? "Refreshing workbook..."
-      : "Loading workbook...");
+    setExcelUploadState(uploadUi.loadingState(file.name, 0));
+    setDataMessage(`Uploading workbook: ${file.name}`);
 
     try {
-      await loadWorkbookFile(file, {
-        successPrefix: pendingWorkbookSelectionMode === "refresh" ? "Refreshed" : "Loaded"
-      });
-    } catch (error) {
-      setDataMessage(friendlyWorkbookError(error, "Unable to load workbook."), true);
-    } finally {
-      pendingWorkbookSelectionMode = "";
-      setLoading(false);
-      event.target.value = "";
-    }
-  }
-
-  async function handleWorkbookPickerClick(event) {
-    if (!isAdmin()) {
-      event.preventDefault();
-      setDataMessage("Admin login is required to select a workbook.", true);
-      return;
-    }
-
-    if (serverModeAvailable) {
-      return;
-    }
-
-    if (!canUseWorkbookPicker()) {
-      return;
-    }
-
-    event.preventDefault();
-    await chooseWorkbookWithPicker({
-      loadingMessage: "Loading workbook...",
-      successPrefix: "Loaded"
-    });
-  }
-
-  function canUseWorkbookPicker() {
-    return typeof global.showOpenFilePicker === "function";
-  }
-
-  function openWorkbookHandleDb() {
-    return new Promise((resolve, reject) => {
-      if (!global.indexedDB) {
-        resolve(null);
-        return;
-      }
-
-      const request = global.indexedDB.open(WORKBOOK_HANDLE_DB_NAME, 1);
-
-      request.onupgradeneeded = () => {
-        const db = request.result;
-
-        if (!db.objectStoreNames.contains(WORKBOOK_HANDLE_STORE_NAME)) {
-          db.createObjectStore(WORKBOOK_HANDLE_STORE_NAME);
-        }
+      const summary = await global.OilRiskMarketDataService.importExcelWorkbook(file);
+      setExcelUploadState(uploadUi.loadingState(file.name, 2));
+      activeDashboardData = await global.OilRiskMarketDataService.prepareDashboardData(
+        global.OilRiskData.cloneDashboardData(activeDashboardData)
+      );
+      lastUploadedFile = {
+        name: file.name,
+        uploadedAt: summary.uploaded_at || new Date().toISOString(),
+        rowsRead: summary.rows_read,
+        rowsValid: summary.rows_valid,
+        recordsLoaded: summary.rows_valid,
+        rowsStored: summary.rows_stored,
+        rowsUpdated: summary.rows_updated,
+        rowsRejected: summary.rows_rejected,
+        instrumentsAffected: summary.instruments_affected || [],
+        dateRange: summary.date_range || null
       };
-
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-      request.onblocked = () => resolve(null);
-    });
-  }
-
-  async function rememberWorkbookHandle(handle) {
-    try {
-      const db = await openWorkbookHandleDb();
-
-      if (!db) {
-        return;
-      }
-
-      await new Promise((resolve, reject) => {
-        const transaction = db.transaction(WORKBOOK_HANDLE_STORE_NAME, "readwrite");
-        transaction.objectStore(WORKBOOK_HANDLE_STORE_NAME).put(handle, WORKBOOK_HANDLE_KEY);
-        transaction.oncomplete = resolve;
-        transaction.onerror = () => reject(transaction.error);
-        transaction.onabort = () => reject(transaction.error);
-      });
-      db.close();
-    } catch (error) {
-      // Some browsers do not allow FileSystemHandle storage. Refresh still works for the current tab.
-    }
-  }
-
-  async function readRememberedWorkbookHandle() {
-    try {
-      const db = await openWorkbookHandleDb();
-
-      if (!db) {
-        return null;
-      }
-
-      const handle = await new Promise((resolve, reject) => {
-        const transaction = db.transaction(WORKBOOK_HANDLE_STORE_NAME, "readonly");
-        const request = transaction.objectStore(WORKBOOK_HANDLE_STORE_NAME).get(WORKBOOK_HANDLE_KEY);
-        request.onsuccess = () => resolve(request.result || null);
-        request.onerror = () => reject(request.error);
-      });
-      db.close();
-
-      return handle;
-    } catch (error) {
-      return null;
-    }
-  }
-
-  async function chooseWorkbookWithPicker(options) {
-    const settings = options || {};
-    setLoading(true);
-    setDataMessage(settings.loadingMessage || "Loading workbook...");
-
-    try {
-      const handles = await global.showOpenFilePicker({
-        multiple: false,
-        types: [{
-          description: "Excel Workbook",
-          accept: {
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"],
-            "application/vnd.ms-excel": [".xls"]
-          }
-        }]
-      });
-      const handle = handles && handles[0];
-
-      if (!handle) {
-        setDataMessage("");
-        return;
-      }
-
-      const file = await handle.getFile();
-      currentWorkbookHandle = handle;
-      await rememberWorkbookHandle(handle);
-      await loadWorkbookFile(file, { successPrefix: settings.successPrefix || "Loaded" });
-      return true;
-    } catch (error) {
-      if (isUserAbort(error)) {
-        setDataMessage("");
-        return false;
-      }
-
-      currentWorkbookHandle = null;
-      setDataMessage(friendlyWorkbookError(error, settings.errorMessage || "Unable to load workbook."), true);
-      return false;
-    } finally {
-      pendingWorkbookSelectionMode = "";
-      setLoading(false);
-    }
-  }
-
-  async function loadWorkbookFile(file, options) {
-    const settings = options || {};
-    const workbookData = await global.OilRiskExcel.readWorkbookData(file);
-    const normalizedData = global.OilRiskExcel.normalizeWorkbookRecords(workbookData.records, {
-      sourceName: file.name,
-      plattsMarketData: workbookData.plattsMarketData,
-      coreExportData: workbookData.coreExportData
-    });
-
-    lastUploadedFile = file;
-    activeDashboardData = normalizedData;
-    renderDashboard(activeDashboardData);
-
-    const info = normalizedData.importInfo;
-    const totalKris = Object.keys(normalizedData.kris || {}).length;
-    const prefix = settings.successPrefix || "Loaded";
-    setDataMessage(`${prefix} ${info.recordsRead} rows; mapped ${info.mappedKris} of ${totalKris} KRIs.`);
-  }
-
-  async function refreshData(options) {
-    const settings = options || {};
-
-    setLoading(true);
-
-    try {
-      if (serverModeAvailable) {
-        if (!settings.isAutomatic && isAdmin()) {
-          const response = await apiRequest("/api/admin/reprocess-market-data", {
-            method: "POST"
-          });
-
-          renderDashboard(response.data);
-          setDataMessage(response.message || "Market data reprocessed.");
-          await refreshAdminPanelStatus();
-          return;
-        }
-
-        const data = await fetchServerMarketData();
-
-        if (data) {
-          renderDashboard(data);
-
-          if (!settings.isAutomatic) {
-            setDataMessage("Data refreshed.");
-          }
-        }
-
-        return;
-      }
-
-      if (activeDashboardData.source.type === "live") {
-        activeDashboardData = await global.OilRiskExcel.fetchDashboardDataFromApi(
-          activeDashboardData.source.refreshEndpoint
-        );
-      } else if (currentWorkbookHandle) {
-        const file = await getFileFromWorkbookHandle(settings);
-        await loadWorkbookFile(file, { successPrefix: "Refreshed" });
-
-        return;
-      } else if (lastUploadedFile) {
-        if (!settings.isAutomatic) {
-          await promptForWorkbookReselection();
-        }
-
-        return;
-      } else {
-        const storedHandle = !settings.isAutomatic ? await readRememberedWorkbookHandle() : null;
-
-        if (storedHandle) {
-          currentWorkbookHandle = storedHandle;
-          const file = await getFileFromWorkbookHandle(settings);
-          await loadWorkbookFile(file, { successPrefix: "Refreshed" });
-
-          return;
-        }
-
-        activeDashboardData = global.OilRiskData.cloneDashboardData(global.dashboardData);
-        activeDashboardData.source.lastRefreshed = new Date().toISOString();
-      }
-
       renderDashboard(activeDashboardData);
-
-      if (!settings.isAutomatic) {
-        setDataMessage("Data refreshed.");
-      }
+      renderAdminPanel();
+      setExcelUploadState(uploadUi.successState(file.name, summary));
+      setDataMessage(`Workbook imported successfully: ${file.name}`);
     } catch (error) {
-      if (!settings.isAutomatic) {
-        if (isFileAccessError(error)) {
-          await promptForWorkbookReselection();
-          return;
-        }
-
-        setDataMessage(friendlyWorkbookError(error, "Unable to refresh data."), true);
-      }
+      const failure = uploadUi.failureState(file.name, error);
+      setExcelUploadState(failure);
+      setDataMessage(`Workbook import failed: ${failure.message}`, true);
     } finally {
-      setLoading(false);
+      if (input) {
+        input.value = "";
+      }
     }
   }
 
-  async function uploadMarketDataWorkbook(file) {
-    const formData = new FormData();
-    formData.append("workbook", file);
-    setLoading(true);
-    setDataMessage("Uploading workbook...");
+  function setExcelUploadState(state) {
+    const panel = document.getElementById("excelUploadStatus");
+    const button = document.getElementById("loadExcelButton");
+    const input = document.getElementById("excelUpload");
 
-    try {
-      const response = await apiRequest("/api/admin/upload-market-data", {
-        method: "POST",
-        body: formData
-      });
-
-      if (response.data) {
-        renderDashboard(response.data);
-      }
-
-      setDataMessage(response.message || "Workbook uploaded successfully.");
-      await refreshAdminPanelStatus();
-    } catch (error) {
-      setDataMessage(error.message || "Unable to upload workbook. Please try again.", true);
-    } finally {
-      setLoading(false);
+    if (button) {
+      button.disabled = Boolean(state && state.buttonDisabled);
+      button.textContent = state && state.status === "loading" ? "Uploading..." : "Load / Refresh Excel";
     }
-  }
-
-  async function getFileFromWorkbookHandle(settings) {
-    const permissionOptions = { mode: "read" };
-    const handle = currentWorkbookHandle;
-
-    if (!handle) {
-      throw new Error("No workbook handle is available.");
+    if (input) {
+      input.disabled = Boolean(state && state.buttonDisabled);
     }
 
-    if (typeof handle.queryPermission === "function") {
-      let permission = await handle.queryPermission(permissionOptions);
-
-      if (permission !== "granted" && !settings.isAutomatic && typeof handle.requestPermission === "function") {
-        permission = await handle.requestPermission(permissionOptions);
-      }
-
-      if (permission !== "granted") {
-        throw new Error("Access to the Excel file is required. Please select the workbook again.");
-      }
-    }
-
-    return handle.getFile();
-  }
-
-  async function promptForWorkbookReselection() {
-    pendingWorkbookSelectionMode = "refresh";
-
-    if (canUseWorkbookPicker()) {
-      await chooseWorkbookWithPicker({
-        loadingMessage: "Refreshing workbook...",
-        successPrefix: "Refreshed",
-        errorMessage: "Unable to refresh workbook."
-      });
+    if (!panel || !state) {
       return;
     }
 
-    setDataMessage("Please select the Excel workbook again to refresh the dashboard.");
+    panel.hidden = false;
+    panel.className = `excel-upload-status is-${state.status}`;
 
-    const uploadInput = document.getElementById("excelUpload");
-
-    if (uploadInput && typeof uploadInput.click === "function") {
-      uploadInput.click();
-    }
-  }
-
-  function friendlyWorkbookError(error, fallbackMessage) {
-    if (isUserAbort(error)) {
-      return "";
-    }
-
-    if (isFileAccessError(error)) {
-      return "The Excel file could not be reopened. Please select the workbook again.";
+    if (state.status === "loading") {
+      panel.innerHTML = `
+        <div class="excel-upload-status-title"><span class="loading-spinner" aria-hidden="true"></span>Processing workbook</div>
+        <div class="excel-upload-file">${escapeHtml(state.fileName)}</div>
+        <ul class="excel-upload-stages">
+          ${state.stages.map((stage, index) => `<li class="${index === state.activeStage ? "is-active" : index < state.activeStage ? "is-complete" : ""}">${escapeHtml(stage)}</li>`).join("")}
+        </ul>
+      `;
+      return;
     }
 
-    return error && error.message ? error.message : fallbackMessage;
-  }
+    if (state.status === "success") {
+      const summary = state.summary || {};
+      const instruments = summary.instruments.length
+        ? summary.instruments.map((instrument) => titleCase(instrument)).join(", ")
+        : "--";
+      const dateRange = summary.dateFrom && summary.dateTo
+        ? `${formatDate(summary.dateFrom)} &ndash; ${formatDate(summary.dateTo)}`
+        : "--";
+      panel.innerHTML = `
+        <div class="excel-upload-status-title">Workbook imported successfully</div>
+        <div class="excel-upload-file">${escapeHtml(state.fileName)}</div>
+        <dl class="excel-upload-summary">
+          <div><dt>Rows read</dt><dd>${summary.rowsRead}</dd></div>
+          <div><dt>Valid observations</dt><dd>${summary.rowsValid}</dd></div>
+          <div><dt>Stored</dt><dd>${summary.rowsStored}</dd></div>
+          <div><dt>Updated</dt><dd>${summary.rowsUpdated}</dd></div>
+          <div><dt>Rejected</dt><dd>${summary.rowsRejected}</dd></div>
+          <div><dt>Instruments affected</dt><dd>${escapeHtml(instruments)}</dd></div>
+          <div><dt>Date range</dt><dd>${dateRange}</dd></div>
+        </dl>
+      `;
+      return;
+    }
 
-  function isUserAbort(error) {
-    return error && error.name === "AbortError";
-  }
-
-  function isFileAccessError(error) {
-    const message = String(error && error.message || "").toLowerCase();
-    const name = String(error && error.name || "").toLowerCase();
-
-    return name.includes("notreadable") ||
-      name.includes("security") ||
-      name.includes("notallowed") ||
-      message.includes("permission") ||
-      message.includes("could not be read") ||
-      message.includes("could not be reopened") ||
-      message.includes("access to the excel file is required");
-  }
-
-  function handleSampleWorkbookDownload() {
-    try {
-      global.OilRiskExcel.downloadSampleWorkbook();
-      setDataMessage("Sample workbook created.");
-    } catch (error) {
-      setDataMessage(error.message || "Unable to create sample workbook.", true);
+    panel.innerHTML = `
+      <div class="excel-upload-status-title">Workbook import failed</div>
+      <div class="excel-upload-file">${escapeHtml(state.fileName)}</div>
+      <p class="excel-upload-error">${escapeHtml(state.message)}</p>
+      <button class="admin-action-button secondary" type="button" data-action="retry-excel-upload">Try Again</button>
+    `;
+    const retryButton = panel.querySelector("[data-action='retry-excel-upload']");
+    if (retryButton) {
+      retryButton.addEventListener("click", () => {
+        const input = document.getElementById("excelUpload");
+        uploadWorkbook(selectedWorkbookFile, input);
+      });
     }
   }
 
   function renderDashboard(rawData) {
-    activeDashboardData = global.OilRiskData.cloneDashboardData(rawData);
+    const nextData = global.OilRiskData.cloneDashboardData(rawData || activeDashboardData);
+    const isApi = (nextData.source && nextData.source.type === "api") ||
+      (global.OilRiskConfig && typeof global.OilRiskConfig.isApiMode === "function" && global.OilRiskConfig.isApiMode());
+
+    if (isApi) {
+      activeDashboardData = nextData;
+    } else {
+      activeDashboardData = Array.isArray(nextData.marketObservations) && nextData.marketObservations.length
+        ? nextData
+        : global.OilRiskMarketDataService.prepareLegacyDashboardData(nextData);
+    }
     enrichedDashboardData = global.OilRiskEngine.enrichDashboardData(activeDashboardData);
+    currentMarketStats = buildMarketProductStats(enrichedDashboardData);
+    if (!editModes.macro) {
+      macroSummary = mergeMacroSummaryWithApi(macroSummary, activeDashboardData);
+    }
 
     renderMetadata(enrichedDashboardData);
-    renderRiskTables(enrichedDashboardData);
-    renderTrendingNews();
-    renderManagementActions(enrichedDashboardData);
+    renderMarketProductCards(currentMarketStats);
+    renderOutlierScan(currentMarketStats);
+    renderBriefing();
+    renderAIAnalysis();
+    renderRiskAdvisor();
+    renderTraderDesk();
     renderMacroSummary();
+    renderInferenceChain();
+    renderGeopoliticalRisk(enrichedDashboardData);
     renderRiskRegister();
-    renderOverallRisk(enrichedDashboardData);
+    renderForwardCalendar();
+    renderManagementActions();
+    renderOverallRisk(enrichedDashboardData, currentMarketStats);
+
     global.OilRiskCharts.renderAll(enrichedDashboardData);
+    updateAdminUi();
   }
 
   function renderMetadata(data) {
-    updateDashboardDate();
-    setText("dataSourceLabel", data.source.label || titleCase(data.source.type));
-    setText("dataSourceDetail", data.source.name || "Dashboard data");
-    setText("lastRefreshed", formatDateTime(data.source.lastRefreshed));
-
-    const sourceDot = document.getElementById("dataSourceDot");
-
-    if (sourceDot) {
-      sourceDot.className = `source-dot source-${data.source.type || "demo"}`;
-    }
-  }
-
-  function updateDashboardDate() {
-    const now = new Date();
-    const formatted = now.toLocaleDateString("en-GB", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric"
-    }).replace("Sept", "Sep");
-
-    setText("dashboardDate", formatted);
-  }
-
-  function renderRiskTables(data) {
-    data.categoryOrder.forEach((categoryId) => {
-      const tableId = TABLE_IDS[categoryId];
-
-      if (!tableId) {
-        return;
-      }
-
-      const table = document.getElementById(tableId);
-
-      if (!table) {
-        return;
-      }
-
-      const category = data.categories[categoryId];
-      const kris = category.kriCodes
-        .map((code) => data.kris[code])
-        .filter(Boolean);
-
-      table.innerHTML = kris.map((kri) => (
-        categoryId === "company"
-          ? renderCompanyRow(kri)
-          : renderStandardRow(kri, categoryId)
-      )).join("");
-    });
-  }
-
-  function renderStandardRow(kri, categoryId) {
-    const trendDays = categoryId === "market" ? 30 : null;
-
-    return `
-      <tr>
-        <td>${renderKriIdentity(kri)}</td>
-        <td>
-          <span class="latest-value">${escapeHtml(kri.metrics.valueText)}</span>
-        </td>
-        <td class="${getDeltaClass(kri.metrics.tone)}">
-          ${escapeHtml(kri.metrics.deltaText)}
-        </td>
-        <td>
-          ${global.OilRiskCharts.createSparkline(kri.history, kri.metrics.tone, {
-            days: trendDays,
-            wide: categoryId === "market",
-            interactiveTooltip: categoryId === "market",
-            tooltipTitle: kri.name,
-            commodityCurrency: kri.commodityCurrency,
-            commodityUnit: kri.commodityUnit || kri.unit,
-            unit: kri.unit
-          })}
-        </td>
-      </tr>
-    `;
-  }
-
-  function renderCompanyRow(kri) {
-    return `
-      <tr>
-        <td>${renderKriIdentity(kri)}</td>
-        <td>${escapeHtml(kri.exposure || "--")}</td>
-        <td>
-          <span class="latest-value">${escapeHtml(kri.metrics.valueText)}</span>
-        </td>
-        <td class="${getDeltaClass(kri.metrics.tone)}">
-          ${escapeHtml(kri.metrics.deltaText)}
-        </td>
-        <td>
-          ${global.OilRiskCharts.createSparkline(kri.history, kri.metrics.tone)}
-        </td>
-      </tr>
-    `;
-  }
-
-  function renderKriIdentity(kri) {
-    return `
-      <span class="kri-name">${escapeHtml(kri.name)}</span>
-      <span class="kri-unit">(${escapeHtml(kri.unit || "No unit")})</span>
-    `;
-  }
-
-  function renderStatusBadge(status) {
-    const normalizedStatus = String(status || "Moderate").toLowerCase();
-
-    return `
-      <span class="badge ${normalizedStatus}">
-        ${escapeHtml(status || "Moderate")}
-      </span>
-    `;
-  }
-
-  function renderTrendingNews() {
-    const list = document.getElementById("trendingNewsItems");
-
-    if (!list) {
-      return;
-    }
-
-    list.innerHTML = trendingNewsEditing
-      ? trendingNewsItems.map((region, regionIndex) => `
-          <section class="trending-news-region-edit" data-trending-news-region-index="${regionIndex}">
-            <div class="trending-news-region-toolbar">
-              <input
-                class="trending-news-region-input"
-                data-trending-news-region-field="title"
-                type="text"
-                value="${escapeHtml(region.title)}"
-                aria-label="Region heading"
-              />
-              <button
-                class="trending-news-delete"
-                type="button"
-                data-trending-news-delete-region="${regionIndex}"
-                aria-label="Delete ${escapeHtml(region.title || `region ${regionIndex + 1}`)} region"
-                title="Delete region"
-              >
-                <i class="fa-solid fa-trash-can"></i>
-              </button>
-            </div>
-
-            <div class="trending-news-subsections">
-              ${region.sections.map((section, sectionIndex) => `
-                <div class="trending-news-subsection-edit" data-trending-news-section-index="${sectionIndex}">
-                  <div class="trending-news-subsection-toolbar">
-                    <input
-                      class="trending-news-subsection-input"
-                      data-trending-news-section-field="title"
-                      type="text"
-                      value="${escapeHtml(section.title)}"
-                      aria-label="Subsection label"
-                    />
-                    <button
-                      class="trending-news-delete"
-                      type="button"
-                      data-trending-news-delete-section="${regionIndex}:${sectionIndex}"
-                      aria-label="Delete subsection ${sectionIndex + 1}"
-                      title="Delete subsection"
-                    >
-                      <i class="fa-solid fa-trash-can"></i>
-                    </button>
-                  </div>
-
-                  <div class="trending-news-edit-items">
-                    ${section.items.map((item, itemIndex) => `
-                      <div class="trending-news-edit-item" data-trending-news-item-index="${itemIndex}">
-                        <span class="trending-news-bullet" aria-hidden="true">&bull;</span>
-                        <textarea
-                          class="trending-news-input"
-                          data-trending-news-field="headline"
-                          rows="2"
-                          aria-label="News item"
-                        >${escapeHtml(item.headline)}</textarea>
-                        <button
-                          class="trending-news-delete"
-                          type="button"
-                          data-trending-news-delete-item="${regionIndex}:${sectionIndex}:${itemIndex}"
-                          aria-label="Delete news item ${itemIndex + 1}"
-                          title="Delete news item"
-                        >
-                          <i class="fa-solid fa-trash-can"></i>
-                        </button>
-                      </div>
-                    `).join("")}
-                  </div>
-
-                  <button
-                    class="trending-news-add-control"
-                    type="button"
-                    data-trending-news-add-item="${regionIndex}:${sectionIndex}"
-                  >
-                    <i class="fa-solid fa-plus"></i>
-                    Add News Item
-                  </button>
-                </div>
-              `).join("")}
-            </div>
-
-            <button
-              class="trending-news-add-control"
-              type="button"
-              data-trending-news-add-section="${regionIndex}"
-            >
-              <i class="fa-solid fa-plus"></i>
-              Add Subsection
-            </button>
-          </section>
-        `).join("")
-      : trendingNewsItems.map((region) => `
-          <section class="trending-news-region">
-            <h4>${escapeHtml(region.title)}</h4>
-            ${region.sections.map((section) => `
-              <div class="trending-news-subsection">
-                <h5>${escapeHtml(section.title)}</h5>
-                <ul>
-                  ${section.items.map((item) => `<li>${escapeHtml(item.headline)}</li>`).join("")}
-                </ul>
-              </div>
-            `).join("")}
-          </section>
-        `).join("");
-
-    bindTrendingNewsTextareas();
-    updateTrendingNewsControls();
-  }
-
-  function bindTrendingNewsTextareas() {
-    const list = document.getElementById("trendingNewsItems");
-
-    if (!list || !trendingNewsEditing) {
-      return;
-    }
-
-    list.querySelectorAll(".trending-news-input").forEach((textarea) => {
-      const resizeTextarea = () => {
-        textarea.style.height = "auto";
-        textarea.style.height = `${textarea.scrollHeight}px`;
-      };
-
-      textarea.addEventListener("input", resizeTextarea);
-      resizeTextarea();
-    });
-  }
-
-  function handleTrendingNewsEdit() {
-    if (!isAdmin()) {
-      return;
-    }
-
-    trendingNewsOriginalItems = cloneTrendingNewsItems(trendingNewsItems);
-    trendingNewsEditing = true;
-    renderTrendingNews();
-  }
-
-  async function saveTrendingNews() {
-    if (!isAdmin()) {
-      return;
-    }
-
-    trendingNewsItems = readTrendingNewsDraft();
-
-    if (serverModeAvailable) {
-      try {
-        trendingNewsItems = normalizeTrendingNews(await apiRequest("/api/admin/news", {
-          method: "PUT",
-          body: JSON.stringify({ items: trendingNewsItems })
-        }));
-      } catch (error) {
-        setDataMessage(error.message || "Unable to save Trending News. Please try again.", true);
-        return;
-      }
-    } else {
-      try {
-        global.localStorage.setItem(
-          TRENDING_NEWS_STORAGE_KEY,
-          JSON.stringify(trendingNewsItems)
-        );
-      } catch (error) {
-        // The panel remains usable if browser storage is unavailable.
-      }
-    }
-
-    trendingNewsEditing = false;
-    trendingNewsOriginalItems = [];
-    renderTrendingNews();
-  }
-
-  function cancelTrendingNews() {
-    trendingNewsItems = cloneTrendingNewsItems(trendingNewsOriginalItems);
-    trendingNewsOriginalItems = [];
-    trendingNewsEditing = false;
-    renderTrendingNews();
-  }
-
-  function handleTrendingNewsAction(event) {
-    if (!isAdmin() || !trendingNewsEditing) {
-      return;
-    }
-
-    const deleteItemButton = event.target.closest("[data-trending-news-delete-item]");
-
-    if (deleteItemButton) {
-      const [regionIndex, sectionIndex, itemIndex] = deleteItemButton.dataset.trendingNewsDeleteItem
-        .split(":")
-        .map(Number);
-      trendingNewsItems = readTrendingNewsDraft();
-      trendingNewsItems[regionIndex].sections[sectionIndex].items.splice(itemIndex, 1);
-      renderTrendingNews();
-      return;
-    }
-
-    const deleteSectionButton = event.target.closest("[data-trending-news-delete-section]");
-
-    if (deleteSectionButton) {
-      const [regionIndex, sectionIndex] = deleteSectionButton.dataset.trendingNewsDeleteSection
-        .split(":")
-        .map(Number);
-      trendingNewsItems = readTrendingNewsDraft();
-      trendingNewsItems[regionIndex].sections.splice(sectionIndex, 1);
-      renderTrendingNews();
-      return;
-    }
-
-    const deleteRegionButton = event.target.closest("[data-trending-news-delete-region]");
-
-    if (deleteRegionButton) {
-      const regionIndex = Number(deleteRegionButton.dataset.trendingNewsDeleteRegion);
-      trendingNewsItems = readTrendingNewsDraft();
-      trendingNewsItems.splice(regionIndex, 1);
-      renderTrendingNews();
-      return;
-    }
-
-    const addItemButton = event.target.closest("[data-trending-news-add-item]");
-
-    if (addItemButton) {
-      const [regionIndex, sectionIndex] = addItemButton.dataset.trendingNewsAddItem
-        .split(":")
-        .map(Number);
-      trendingNewsItems = readTrendingNewsDraft();
-      trendingNewsItems[regionIndex].sections[sectionIndex].items.push({
-        id: createTrendingNewsId("item"),
-        headline: ""
-      });
-      renderTrendingNews();
-      return;
-    }
-
-    const addSectionButton = event.target.closest("[data-trending-news-add-section]");
-
-    if (addSectionButton) {
-      const regionIndex = Number(addSectionButton.dataset.trendingNewsAddSection);
-      trendingNewsItems = readTrendingNewsDraft();
-      trendingNewsItems[regionIndex].sections.push({
-        id: createTrendingNewsId("section"),
-        title: "New Subsection",
-        items: [{
-          id: createTrendingNewsId("item"),
-          headline: ""
-        }]
-      });
-      renderTrendingNews();
-      return;
-    }
-
-    const addRegionButton = event.target.closest("[data-trending-news-add-region]");
-
-    if (addRegionButton) {
-      addTrendingNewsRegion();
-    }
-  }
-
-  function addTrendingNewsRegion() {
-    if (!isAdmin()) {
-      return;
-    }
-
-    trendingNewsItems = readTrendingNewsDraft();
-    trendingNewsItems.push({
-      id: createTrendingNewsId("region"),
-      title: "New Region",
-      sections: [{
-        id: createTrendingNewsId("section"),
-        title: "Oil & Gas",
-        items: [{
-          id: createTrendingNewsId("item"),
-          headline: ""
-        }]
-      }]
-    });
-    trendingNewsEditing = true;
-    renderTrendingNews();
-  }
-
-  function readTrendingNewsDraft() {
-    const list = document.getElementById("trendingNewsItems");
-
-    if (!list) {
-      return trendingNewsItems;
-    }
-
-    return Array.from(list.querySelectorAll("[data-trending-news-region-index]")).map((regionElement, regionIndex) => {
-      const originalRegion = trendingNewsItems[regionIndex] || {};
-      const titleElement = regionElement.querySelector("[data-trending-news-region-field=\"title\"]");
-
-      return {
-        id: originalRegion.id || createTrendingNewsId("region"),
-        title: titleElement ? titleElement.value.trim() : String(originalRegion.title || ""),
-        sections: Array.from(regionElement.querySelectorAll("[data-trending-news-section-index]")).map((sectionElement, sectionIndex) => {
-          const originalSection = originalRegion.sections && originalRegion.sections[sectionIndex]
-            ? originalRegion.sections[sectionIndex]
-            : {};
-          const sectionTitleElement = sectionElement.querySelector("[data-trending-news-section-field=\"title\"]");
-
-          return {
-            id: originalSection.id || createTrendingNewsId("section"),
-            title: sectionTitleElement
-              ? sectionTitleElement.value.trim()
-              : String(originalSection.title || ""),
-            items: Array.from(sectionElement.querySelectorAll("[data-trending-news-item-index]")).map((itemElement, itemIndex) => {
-              const originalItem = originalSection.items && originalSection.items[itemIndex]
-                ? originalSection.items[itemIndex]
-                : {};
-              const headlineElement = itemElement.querySelector("[data-trending-news-field=\"headline\"]");
-
-              return {
-                id: originalItem.id || createTrendingNewsId("item"),
-                headline: headlineElement ? headlineElement.value.trim() : String(originalItem.headline || "")
-              };
-            })
-          };
-        })
-      };
-    });
-  }
-
-  function createTrendingNewsId(type) {
-    return `news-${type}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-  }
-
-  function cloneTrendingNewsItems(items) {
-    return (items || []).map((region) => ({
-      ...region,
-      sections: (region.sections || []).map((section) => ({
-        ...section,
-        items: (section.items || []).map((item) => ({ ...item }))
-      }))
-    }));
-  }
-
-  function loadTrendingNews() {
-    try {
-      const storedItems = global.localStorage.getItem(TRENDING_NEWS_STORAGE_KEY);
-
-      if (storedItems) {
-        const parsedItems = JSON.parse(storedItems);
-
-        if (Array.isArray(parsedItems)) {
-          if (parsedItems.some((item) => item && Array.isArray(item.sections))) {
-            return parsedItems.map(normalizeTrendingNewsRegion);
-          }
-
-          const migratedItems = normalizeTrendingNews(DEFAULT_TRENDING_NEWS);
-          const legacyItems = parsedItems
-            .map((item, index) => normalizeTrendingNewsItem(item, index))
-            .filter((item) => item.headline);
-          const nigeria = migratedItems.find((region) => region.id === "nigeria");
-
-          if (nigeria && legacyItems.length) {
-            nigeria.sections[0].items = legacyItems;
-          }
-
-          return migratedItems;
+    const source = data.source || {};
+    const isApi = source.type === "api" || (global.OilRiskConfig && typeof global.OilRiskConfig.isApiMode === "function" && global.OilRiskConfig.isApiMode());
+    const sourceLabel = isApi
+      ? (source.stale ? `${source.label || "Market data"} (Stale)` : (source.unavailable ? `${source.label || "Market data"} (Unavailable)` : (source.label || "OilPriceAPI")))
+      : (source.label || titleCase(source.type || "Demo"));
+    const refreshed = source.refreshedAtFormatted || formatDateTime(source.lastRefreshed) || (lastUploadedFile && lastUploadedFile.uploadedAt) || "--";
+
+    setText("dataSourceLabel", sourceLabel);
+    setText("lastRefreshed", refreshed);
+    setText("dashboardDate", formatDate(new Date()));
+    setText("marketRefreshText", `Last market refresh: ${refreshed}`);
+
+    const banner = document.getElementById("apiUnavailableBanner");
+    if (banner) {
+      const hasUsableMarketData = (Array.isArray(data.marketObservations) && data.marketObservations.some((observation) => (
+        observation && Number.isFinite(Number(observation.value))
+      ))) || (data.backendMarketStats && Object.values(data.backendMarketStats).some((stat) => (
+        stat && Number.isFinite(Number(stat.current_value))
+      )));
+
+      const shouldShowWarning = data.apiUnavailable === true && !hasUsableMarketData;
+
+      if (shouldShowWarning) {
+        banner.hidden = false;
+        const msg = document.getElementById("apiUnavailableMessage");
+        if (msg) {
+          msg.textContent = data.apiErrorMessage || "Live market data temporarily unavailable.";
         }
+      } else {
+        banner.hidden = true;
       }
-    } catch (error) {
-      // Use the structured sample when browser storage is unavailable or invalid.
-    }
-
-    return normalizeTrendingNews(DEFAULT_TRENDING_NEWS);
-  }
-
-  function normalizeTrendingNews(items) {
-    return (Array.isArray(items) ? items : []).map(normalizeTrendingNewsRegion);
-  }
-
-  function normalizeTrendingNewsRegion(region, regionIndex) {
-    const source = region || {};
-    const sections = Array.isArray(source.sections) ? source.sections : [];
-
-    return {
-      id: String(source.id || `region-${regionIndex + 1}`),
-      title: String(source.title ?? ""),
-      sections: sections.map((section, sectionIndex) => normalizeTrendingNewsSection(section, regionIndex, sectionIndex))
-    };
-  }
-
-  function normalizeTrendingNewsSection(section, regionIndex, sectionIndex) {
-    const source = section || {};
-    const items = Array.isArray(source.items) ? source.items : [];
-
-    return {
-      id: String(source.id || `section-${regionIndex + 1}-${sectionIndex + 1}`),
-      title: String(source.title ?? ""),
-      items: items.map((item, itemIndex) => normalizeTrendingNewsItem(item, itemIndex, regionIndex, sectionIndex))
-    };
-  }
-
-  function normalizeTrendingNewsItem(item, itemIndex, regionIndex = 0, sectionIndex = 0) {
-    const source = item || {};
-
-    return {
-      id: String(source.id || `item-${regionIndex + 1}-${sectionIndex + 1}-${itemIndex + 1}`),
-      headline: String(source.headline ?? "")
-    };
-  }
-
-  function updateTrendingNewsControls() {
-    const editButton = document.getElementById("trendingNewsEditButton");
-    const saveButton = document.getElementById("trendingNewsSaveButton");
-    const cancelButton = document.getElementById("trendingNewsCancelButton");
-    const addRegionButton = document.getElementById("trendingNewsAddRegionButton");
-
-    if (editButton) {
-      editButton.hidden = !isAdmin() || trendingNewsEditing;
-    }
-
-    if (saveButton) {
-      saveButton.hidden = !isAdmin() || !trendingNewsEditing;
-    }
-
-    if (cancelButton) {
-      cancelButton.hidden = !isAdmin() || !trendingNewsEditing;
-    }
-
-    if (addRegionButton) {
-      addRegionButton.hidden = !isAdmin() || !trendingNewsEditing;
     }
   }
 
-  function renderManagementActions(data) {
-    const source = managementActions || loadManagementActions(data);
+  function renderTriggerStrip(categories) {
+    const counts = RISK_SCALE.reduce((result, rating) => {
+      result[rating] = 0;
+      return result;
+    }, {});
 
-    managementActions = normalizeManagementActions(source, data);
-    renderTakeaways(managementActions);
-    renderRecommendedActions(managementActions);
-    bindManagementActionsTextareas();
-    updateManagementActionsControls();
-  }
+    const validCategories = Object.values(categories || {}).filter((category) => (
+      category && Object.prototype.hasOwnProperty.call(counts, category.rating)
+    ));
 
-  function renderTakeaways(actions) {
-    const list = document.getElementById("takeawayList");
-
-    if (!list) {
+    if (!validCategories.length) {
+      const container = document.getElementById("triggerCounts");
+      if (container) {
+        container.innerHTML = `<span class="trigger-chip trigger-empty">&mdash;</span>`;
+      }
       return;
     }
 
-    if (managementActionsEditing) {
-      list.innerHTML = (actions.takeaways || []).map((item, index) => `
-        <div class="takeaway-item" data-management-action-index="${index}">
-          <span>${index + 1}</span>
-          <div class="management-actions-edit-row">
-            <textarea
-              class="management-actions-input"
-              data-management-actions-field="takeaway"
-              aria-label="Management action ${index + 1}"
-            >${escapeHtml(item)}</textarea>
-            <button
-              class="management-actions-delete"
-              type="button"
-              data-management-actions-delete-takeaway="${index}"
-              aria-label="Delete management action ${index + 1}"
-              title="Delete action"
-            >
-              <i class="fa-solid fa-trash"></i>
-            </button>
-          </div>
-        </div>
-      `).join("");
+    validCategories.forEach((category) => {
+      counts[category.rating] += 1;
+    });
+
+    const container = document.getElementById("triggerCounts");
+
+    if (!container) {
       return;
     }
 
-    list.innerHTML = (actions.takeaways || []).map((item, index) => `
-      <div class="takeaway-item">
-        <span>${index + 1}</span>
-        ${escapeHtml(item)}
-      </div>
+    container.innerHTML = RISK_SCALE.map((rating) => `
+      <span class="trigger-chip status-${rating.toLowerCase()}">
+        <span class="dot ${rating.toLowerCase()}"></span>
+        ${counts[rating] || 0} ${escapeHtml(rating)}
+      </span>
     `).join("");
   }
 
-  function renderRecommendedActions(actions) {
-    const list = document.getElementById("recommendedActions");
+  function renderMarketProductCards(stats) {
+    const container = document.getElementById("marketProductGrid");
+    const note = document.getElementById("marketWindowNote");
 
-    if (!list) {
+    if (!container) {
       return;
     }
 
-    list.classList.toggle("recommended-actions-edit-list", managementActionsEditing);
+    const maxObservationCount = Math.max(...stats.map((stat) => stat.windowObservationCount), 0);
 
-    if (managementActionsEditing) {
-      list.innerHTML = (actions.recommendedActions || []).map((item, index) => `
-        <li data-recommended-action-index="${index}">
-          <div class="recommended-actions-edit-row">
-            <textarea
-              class="management-actions-input"
-              data-management-actions-field="recommended"
-              aria-label="Recommended action ${index + 1}"
-            >${escapeHtml(item)}</textarea>
-            <button
-              class="management-actions-delete"
-              type="button"
-              data-management-actions-delete-recommended="${index}"
-              aria-label="Delete recommended action ${index + 1}"
-              title="Delete recommended action"
-            >
-              <i class="fa-solid fa-trash"></i>
-            </button>
+    if (note) {
+      const isApi = global.OilRiskConfig && typeof global.OilRiskConfig.isApiMode === "function" && global.OilRiskConfig.isApiMode();
+      note.textContent = isApi
+        ? `90 calendar-day window (${maxObservationCount} observations accumulated)`
+        : `90 calendar-day window, valid observations only (${maxObservationCount || 0} max)`;
+    }
+
+    container.innerHTML = stats.map((stat) => {
+      if (stat.isUnavailable) {
+        return `
+          <article class="product-card is-unavailable status-unavailable" data-instrument="${escapeHtml(stat.key)}">
+            <div class="product-top">
+              <div>
+                <h3 class="product-name">${escapeHtml(stat.name)}</h3>
+                <span class="product-unit">${escapeHtml(stat.unit || "")}</span>
+              </div>
+              <span class="status-pill status-pill-unavailable">Unavailable</span>
+            </div>
+            <div class="product-price-row">
+              <span class="product-price price-unavailable">Price unavailable</span>
+              <span class="product-change change-flat">—</span>
+            </div>
+            <div class="product-unavailable-notice">
+              ${escapeHtml(stat.unavailableReason || "No approved automated source configured")}
+            </div>
+            <div class="product-source-line">
+              ${escapeHtml(stat.sourceLineText || "Automated source not configured")}
+            </div>
+          </article>
+        `;
+      }
+
+      const statusClass = (stat.status || "low").toLowerCase();
+      const statusPillClass = stat.freshnessStatus === "stale"
+        ? "status-pill-stale"
+        : stat.benchmarkStatus === "test_proxy"
+          ? "status-pill-proxy"
+          : `status-${statusClass}`;
+      const statusPillText = stat.freshnessStatus === "stale"
+        ? "Stale"
+        : stat.benchmarkStatus === "test_proxy"
+          ? "Proxy"
+          : stat.status;
+
+      const trendHistory = stat.history
+        ? global.OilRiskMarketCalculations.trendWindow(stat.history, 30)
+        : [];
+      let sparkHtml = "";
+      if (trendHistory.length >= 2) {
+        sparkHtml = global.OilRiskCharts.createSparkline(stat.history, stat.tone, {
+          days: 30,
+          interactiveTooltip: true,
+          tooltipTitle: `${stat.name} 30D`,
+          commodityCurrency: stat.currency,
+          commodityUnit: stat.commodityUnit || stat.unit
+        });
+      } else {
+        sparkHtml = `<div class="spark-insufficient"><span>30D Trend: Insufficient history</span></div>`;
+      }
+
+      let zDisplayHtml = "";
+      if (stat.historyStatus === "insufficient_history" || !Number.isFinite(stat.zScore)) {
+        zDisplayHtml = `
+          <div class="product-z z-insufficient">
+            Z-score <strong>Insufficient 90D history</strong>
+            <span class="outlier-meta">${stat.windowObservationCount} valid observation${stat.windowObservationCount === 1 ? "" : "s"}</span>
           </div>
-        </li>
+        `;
+      } else {
+        const zText = `${stat.zScore >= 0 ? "+" : ""}${stat.zScore.toFixed(2)} sigma`;
+        const meanText = formatPlainNumber(stat.mean90, stat.decimals);
+        zDisplayHtml = `
+          <div class="product-z">
+            Z-score <strong>${escapeHtml(zText)}</strong> vs mean ${escapeHtml(meanText)}
+            <span class="outlier-meta">${stat.windowObservationCount} valid observations</span>
+            ${renderZBar(stat)}
+          </div>
+        `;
+      }
+
+      return `
+        <article class="product-card status-${statusClass}" data-instrument="${escapeHtml(stat.key)}">
+          <div class="product-top">
+            <div>
+              <h3 class="product-name">${escapeHtml(stat.name)}</h3>
+              <span class="product-unit">${escapeHtml(stat.unit || "")}</span>
+            </div>
+            <span class="status-pill ${statusPillClass}">${escapeHtml(statusPillText)}</span>
+          </div>
+          <div class="product-price-row">
+            <span class="product-price">${escapeHtml(stat.latestText)}</span>
+            <span class="product-change ${escapeHtml(stat.changeClass)}">${escapeHtml(stat.changeText)}</span>
+          </div>
+          <div class="product-spark">
+            ${sparkHtml}
+          </div>
+          ${zDisplayHtml}
+          <div class="product-source-line">
+            ${escapeHtml(stat.sourceLineText || "")}
+          </div>
+        </article>
+      `;
+    }).join("");
+  }
+
+  function renderZBar(stat) {
+    const statusColor = {
+      Low: "var(--green)",
+      Moderate: "var(--amber)",
+      High: "var(--oando-red-orange)",
+      Catastrophic: "var(--deep-red)"
+    }[stat.status] || "var(--muted)";
+    const zScore = Number.isFinite(stat.zScore) ? Math.max(-3, Math.min(3, stat.zScore)) : 0;
+    const markLeft = ((zScore + 3) / 6) * 100;
+    const fillLeft = Math.min(50, markLeft);
+    const fillWidth = Math.abs(markLeft - 50);
+
+    return `
+      <div class="zbar" aria-hidden="true">
+        <span class="zbar-fill" style="left:${fillLeft.toFixed(2)}%;width:${fillWidth.toFixed(2)}%;background:${statusColor};"></span>
+        <span class="zbar-mark" style="left:${markLeft.toFixed(2)}%;"></span>
+      </div>
+    `;
+  }
+
+  function renderOutlierScan(stats) {
+    const container = document.getElementById("outlierScan");
+
+    if (!container) {
+      return;
+    }
+
+    const validStats = stats.filter((stat) => Number.isFinite(stat.zScore));
+
+    if (!validStats.length) {
+      container.innerHTML = `
+        <div class="outlier-empty-state">
+          <p class="outlier-empty-title">Insufficient 90D History</p>
+          <p class="outlier-empty-desc">Outlier z-scores require minimum 60 daily observations. Statistical outlier detection will activate automatically as daily provider observations accumulate in Supabase.</p>
+        </div>
+      `;
+      return;
+    }
+
+    container.innerHTML = validStats
+      .slice()
+      .sort((a, b) => Math.abs(b.zScore || 0) - Math.abs(a.zScore || 0))
+      .map((stat) => {
+        const statusClass = (stat.status || "low").toLowerCase();
+        const zText = `${stat.zScore >= 0 ? "+" : ""}${stat.zScore.toFixed(2)} sigma`;
+
+        return `
+          <div class="outlier-row">
+            <div class="outlier-name">
+              ${escapeHtml(stat.name)}
+              <span class="outlier-meta">${escapeHtml(stat.marketCode)} - ${stat.windowObservationCount} observations</span>
+            </div>
+            <span class="outlier-score rating-${statusClass}">${escapeHtml(zText)}</span>
+          </div>
+        `;
+      }).join("");
+  }
+
+  function buildMarketProductStats(data) {
+    const isApi = (data.source && data.source.type === "api") ||
+      (global.OilRiskConfig && typeof global.OilRiskConfig.isApiMode === "function" && global.OilRiskConfig.isApiMode());
+
+    return PRODUCT_ORDER.map((product) => {
+      const kri = (data.kris && data.kris[product.kriCode]) || {};
+      const backendStat = data.backendMarketStats && data.backendMarketStats[product.key];
+      const configInst = (global.OilRiskConfig && global.OilRiskConfig.MARKET_INSTRUMENTS && global.OilRiskConfig.MARKET_INSTRUMENTS[product.key]) || {};
+
+      if (isApi) {
+        const isUnavailable = backendStat
+          ? (backendStat.benchmark_status === "unavailable" || backendStat.current_value === null)
+          : (configInst.benchmarkStatus === "unavailable");
+
+        let displayName = product.name;
+        if (backendStat && backendStat.provider_display_name) {
+          displayName = backendStat.provider_display_name;
+        } else if (configInst.providerDisplayName) {
+          displayName = configInst.providerDisplayName;
+        } else if (configInst.displayName) {
+          displayName = configInst.displayName;
+        }
+
+        if (product.key === "forcados") displayName = "Forcados";
+        if (product.key === "gasoline") displayName = "Gasoline";
+        if (product.key === "jet") displayName = "Jet";
+
+        const providerSymbol = (backendStat && backendStat.provider_symbol) || configInst.providerSymbol || null;
+        const benchmarkStatus = (backendStat && backendStat.benchmark_status) || configInst.benchmarkStatus || (isUnavailable ? "unavailable" : "confirmed");
+        const freshnessStatus = (backendStat && backendStat.freshness_status) || (isUnavailable ? "unavailable" : (data.source && data.source.stale ? "stale" : "fresh"));
+        const unavailableReason = (backendStat && backendStat.unavailable_reason) || configInst.unavailableReason || "No approved automated source configured";
+        const historyStatus = (backendStat && backendStat.history_status) || "insufficient_history";
+        const providerName = (backendStat && backendStat.provider) || configInst.provider || "OilPriceAPI";
+
+        let sourceLineText = "Automated source not configured";
+        if (!isUnavailable && providerSymbol) {
+          const sourceLabel = providerName === "internal_excel" ? "Internal market workbook" : providerName;
+          if (benchmarkStatus === "test_proxy") {
+            sourceLineText = `Source: ${sourceLabel} · ${providerSymbol} · Test proxy`;
+          } else {
+            sourceLineText = `Source: ${sourceLabel} · ${providerSymbol}`;
+          }
+        }
+
+        const decimals = Number.isFinite(kri.decimals) ? kri.decimals : 2;
+
+        if (isUnavailable) {
+          return {
+            ...product,
+            name: displayName,
+            canonicalName: configInst.canonicalName || product.name,
+            marketCode: providerSymbol || "",
+            unit: (backendStat && backendStat.unit) || configInst.unit || kri.unit || "USD/bbl",
+            currency: kri.commodityCurrency || "USD",
+            commodityUnit: configInst.unit || kri.unit || "",
+            decimals,
+            history: [],
+            latestValue: null,
+            latestText: "Price unavailable",
+            previousValue: null,
+            change: null,
+            percentChange: null,
+            changeText: "—",
+            changeClass: "change-flat",
+            tone: "neutral",
+            status: "Unavailable",
+            freshnessStatus: "unavailable",
+            benchmarkStatus: "unavailable",
+            unavailableReason,
+            sourceLineText,
+            isUnavailable: true,
+            historyStatus: "unavailable",
+            mean90: null,
+            sd90: null,
+            zScore: null,
+            windowObservationCount: 0
+          };
+        }
+
+        const latestValue = backendStat ? backendStat.current_value : null;
+        const previousValue = backendStat ? backendStat.previous_value : null;
+        const change = backendStat ? backendStat.change : null;
+        const percentChange = backendStat ? backendStat.percent_change : null;
+
+        const hasHistory = backendStat && Array.isArray(backendStat.history) && backendStat.history.length >= 2;
+        const history = hasHistory ? backendStat.history : [];
+        const changeText = (change !== null && Number.isFinite(change))
+          ? formatDelta(kri, change, percentChange)
+          : "—";
+        const changeClass = (change === null || change === 0) ? "change-flat" : (change > 0 ? "change-up" : "change-down");
+        const tone = (change === null || change === 0) ? "neutral" : (change > 0 ? "negative" : "positive");
+
+        const zScore = backendStat ? backendStat.z_score : null;
+        const mean90 = backendStat ? backendStat.mean_90 : null;
+        const sd90 = backendStat ? backendStat.std_dev_90 : null;
+        const windowObservationCount = backendStat ? (backendStat.window_count || (latestValue !== null ? 1 : 0)) : 0;
+
+        let status = "Active";
+        if (freshnessStatus === "stale") {
+          status = "Stale";
+        } else if (benchmarkStatus === "test_proxy") {
+          status = "Proxy";
+        } else if (Number.isFinite(zScore)) {
+          status = riskStatusFromZ(zScore);
+        }
+
+        return {
+          ...product,
+          name: displayName,
+          canonicalName: configInst.canonicalName || product.name,
+          marketCode: providerSymbol || "",
+          unit: (backendStat && backendStat.unit) || configInst.unit || kri.unit || "USD/bbl",
+          currency: kri.commodityCurrency || "USD",
+          commodityUnit: configInst.unit || kri.unit || "",
+          decimals,
+          history,
+          latestValue,
+          latestText: Number.isFinite(latestValue) ? formatKriValue(kri, latestValue) : "Price unavailable",
+          previousValue,
+          change,
+          percentChange,
+          changeText,
+          changeClass,
+          tone,
+          status,
+          freshnessStatus,
+          benchmarkStatus,
+          unavailableReason: null,
+          sourceLineText,
+          isUnavailable: false,
+          historyStatus,
+          mean90,
+          sd90,
+          zScore,
+          windowObservationCount
+        };
+      }
+
+      const stats90 = global.OilRiskMarketCalculations.calculateInstrumentStats(
+        data.marketObservations,
+        product.key,
+        90
+      );
+      const history = global.OilRiskMarketCalculations.toHistoryPoints(stats90.history);
+      const latestValue = stats90.currentValue;
+      const previousValue = stats90.previousValue;
+      const change = stats90.change;
+      const percentChange = stats90.percentChange;
+      const status = riskStatusFromZ(stats90.zScore);
+      const decimals = Number.isFinite(kri.decimals) ? kri.decimals : 2;
+
+      return {
+        ...product,
+        name: product.name,
+        canonicalName: product.name,
+        marketCode: stats90.latestObservation
+          ? stats90.latestObservation.providerSymbol
+          : kri.providerSymbol || kri.marketDataCode || "",
+        unit: kri.unit || "",
+        currency: kri.commodityCurrency || "USD",
+        commodityUnit: kri.commodityUnit || kri.unit || "",
+        decimals,
+        history,
+        latestValue,
+        latestText: formatKriValue(kri, latestValue),
+        previousValue,
+        change,
+        percentChange,
+        changeText: formatDelta(kri, change, percentChange),
+        changeClass: change === null || change === 0 ? "change-flat" : change > 0 ? "change-up" : "change-down",
+        tone: change === null || change === 0 ? "neutral" : change > 0 ? "negative" : "positive",
+        status,
+        freshnessStatus: "fresh",
+        benchmarkStatus: "confirmed",
+        unavailableReason: null,
+        sourceLineText: `Source: Legacy Platts · ${kri.providerSymbol || kri.marketDataCode || ""}`,
+        isUnavailable: false,
+        historyStatus: "valid",
+        mean90: stats90.mean90,
+        sd90: stats90.sd90,
+        zScore: stats90.zScore,
+        windowObservationCount: stats90.windowObservationCount
+      };
+    });
+  }
+
+  function riskStatusFromZ(zScore) {
+    if (!Number.isFinite(zScore)) {
+      return "Low";
+    }
+
+    const absZ = Math.abs(zScore);
+
+    if (absZ >= Z_SCORE_RISK_CONFIG.outlierMaxAbsZ) {
+      return Z_SCORE_RISK_CONFIG.labels.extreme;
+    }
+
+    if (absZ >= Z_SCORE_RISK_CONFIG.watchMaxAbsZ) {
+      return Z_SCORE_RISK_CONFIG.labels.outlier;
+    }
+
+    if (absZ >= Z_SCORE_RISK_CONFIG.normalMaxAbsZ) {
+      return Z_SCORE_RISK_CONFIG.labels.watch;
+    }
+
+    return Z_SCORE_RISK_CONFIG.labels.normal;
+  }
+
+  function renderBriefing() {
+    const container = document.getElementById("dailyBriefingContent");
+
+    if (apiModeEnabled()) {
+      renderVerifiedNewsActions();
+      if (container) {
+        container.innerHTML = renderVerifiedNews();
+        decorateVerifiedNewsMetadata();
+      }
+      return;
+    }
+
+    renderSectionActions("briefingActions", "briefing", editModes.briefing ? `
+      <button class="mini-button secondary" type="button" data-action="add-briefing-region">Add Region</button>
+    ` : "");
+
+    if (!container) {
+      return;
+    }
+
+    if (editModes.briefing) {
+      container.innerHTML = renderBriefingEdit();
+      return;
+    }
+
+    container.innerHTML = `
+      <div class="briefing-content">
+        ${briefingItems.map((region) => `
+          <div class="briefing-region">
+            <h3>${escapeHtml(region.title)}</h3>
+            ${(region.sections || []).map((section) => `
+              <div class="briefing-subsection">
+                <span class="category-pill ${escapeHtml(categoryClass(section.title))}">${escapeHtml(categoryLabel(section.title, region.title))}</span>
+                <ul class="briefing-list">
+                  ${(section.items || []).map((item) => `<li>${escapeHtml(item.headline)}</li>`).join("") || `<li class="empty-state">No items entered.</li>`}
+                </ul>
+              </div>
+            `).join("") || `<p class="empty-state">No sections entered.</p>`}
+          </div>
+        `).join("")}
+      </div>
+    `;
+  }
+
+  function renderVerifiedNewsActions() {
+    const container = document.getElementById("briefingActions");
+    if (!container || !isAdmin()) {
+      if (container) container.innerHTML = "";
+      return;
+    }
+    container.innerHTML = `<button class="mini-button" type="button" data-action="refresh-news"${newsLoading ? " disabled" : ""}>${newsLoading ? "Refreshing..." : "Refresh News"}</button>`;
+  }
+
+  function renderVerifiedNews() {
+    const regions = [
+      ["international", "International"],
+      ["africa", "Africa"],
+      ["nigeria", "Nigeria"]
+    ];
+    const byRegion = new Map(regions.map(([key]) => [key, []]));
+    newsItems.forEach((item) => {
+      if (byRegion.has(item.region)) {
+        byRegion.get(item.region).push(item);
+      }
+    });
+
+    return `
+      <div class="briefing-content verified-news-content">
+        ${regions.map(([key, label]) => {
+          const items = (byRegion.get(key) || [])
+            .slice()
+            .sort((a, b) => Date.parse(b.published_at || "") - Date.parse(a.published_at || ""))
+            .slice(0, 3);
+          return `
+            <section class="briefing-region verified-news-region">
+              <h3>${label}</h3>
+              <ul class="briefing-list verified-news-list">
+                ${items.length ? items.map((item) => `
+                  <li>
+                    <a href="${escapeAttribute(item.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.title)}</a>
+                    <span class="news-meta">${escapeHtml(item.source_name)} · ${escapeHtml(formatDate(item.published_at))}${item.topic ? ` · ${escapeHtml(item.topic.replaceAll("_", " "))}` : ""}</span>
+                  </li>
+                `).join("") : `<li class="empty-state">No recent verified stories</li>`}
+              </ul>
+            </section>
+          `;
+        }).join("")}
+      </div>
+    `;
+  }
+
+  function decorateVerifiedNewsMetadata() {
+    document.querySelectorAll(".verified-news-list .news-meta").forEach((meta) => {
+      const parts = meta.textContent.split(/\s+(?:Â·|·)\s+/).map((part) => part.trim()).filter(Boolean);
+      const source = parts[0] || "Verified source";
+      const date = parts[1] || "--";
+      const topic = parts.slice(2).join(" ");
+
+      meta.textContent = "";
+      [source, "·", date].forEach((value, index) => {
+        const span = document.createElement("span");
+        span.textContent = value;
+        if (index === 1) {
+          span.setAttribute("aria-hidden", "true");
+        }
+        meta.appendChild(span);
+      });
+
+      if (topic) {
+        const badge = document.createElement("span");
+        badge.className = "news-topic";
+        badge.textContent = titleCase(topic);
+        meta.appendChild(badge);
+      }
+    });
+  }
+
+  function renderBriefingEdit() {
+    return `
+      <div class="edit-stack">
+        ${briefingItems.map((region, regionIndex) => `
+          <div class="edit-card" data-briefing-region="${regionIndex}">
+            <div class="edit-row">
+              <label>Region
+                <input data-field="region-title" type="text" value="${escapeAttribute(region.title)}" />
+              </label>
+              <div class="inline-actions">
+                <button class="mini-button secondary" type="button" data-action="add-briefing-section" data-region="${regionIndex}">Add Section</button>
+                <button class="mini-button danger" type="button" data-action="delete-briefing-region" data-region="${regionIndex}">Delete Region</button>
+              </div>
+            </div>
+            ${(region.sections || []).map((section, sectionIndex) => `
+              <div class="edit-card compact" data-briefing-section="${sectionIndex}">
+                <div class="edit-row">
+                  <label>Subsection
+                    <input data-field="section-title" type="text" value="${escapeAttribute(section.title)}" />
+                  </label>
+                  <div class="inline-actions">
+                    <button class="mini-button secondary" type="button" data-action="add-briefing-item" data-region="${regionIndex}" data-section-index="${sectionIndex}">Add Item</button>
+                    <button class="mini-button danger" type="button" data-action="delete-briefing-section" data-region="${regionIndex}" data-section-index="${sectionIndex}">Delete Section</button>
+                  </div>
+                </div>
+                ${(section.items || []).map((item, itemIndex) => `
+                  <div class="edit-row" data-briefing-item="${itemIndex}">
+                    <label>Briefing item
+                      <textarea data-field="item-headline">${escapeHtml(item.headline)}</textarea>
+                    </label>
+                    <div class="inline-actions">
+                      <button class="mini-button danger" type="button" data-action="delete-briefing-item" data-region="${regionIndex}" data-section-index="${sectionIndex}" data-item="${itemIndex}">Delete Item</button>
+                    </div>
+                  </div>
+                `).join("")}
+              </div>
+            `).join("")}
+          </div>
+        `).join("")}
+      </div>
+    `;
+  }
+
+  async function loadLatestAIAnalysis() {
+    const result = await global.OilRiskAIService.getLatestDashboardAnalysis();
+    aiAnalysisEnvelope = result;
+    latestAIAnalysis = result && result.data && result.data.analysis ? result.data.analysis : null;
+    renderAIAnalysis();
+  }
+
+  async function handleAIRefresh() {
+    const button = document.getElementById("aiRefreshButton");
+    const status = document.getElementById("aiAnalysisStatus");
+    if (!button) {
+      return;
+    }
+
+    button.disabled = true;
+    button.textContent = "Analysing...";
+    if (status) {
+      status.classList.remove("is-error");
+      status.textContent = "Building a verified dashboard context and requesting analysis...";
+    }
+
+    const result = await global.OilRiskAIService.generateDashboardAnalysis({ forceRefresh: true });
+    aiAnalysisEnvelope = result;
+    latestAIAnalysis = result && result.data && result.data.analysis ? result.data.analysis : null;
+    renderAIAnalysis();
+    button.disabled = false;
+    button.textContent = "Refresh AI Analysis";
+  }
+
+  function renderAIAnalysis() {
+    const content = document.getElementById("aiAnalysisContent");
+    const status = document.getElementById("aiAnalysisStatus");
+    const timestamp = document.getElementById("aiAnalysisGeneratedAt");
+    const button = document.getElementById("aiRefreshButton");
+    if (!content || !status || !timestamp) {
+      return;
+    }
+
+    const response = aiAnalysisEnvelope && (aiAnalysisEnvelope.data || aiAnalysisEnvelope);
+    const analysis = latestAIAnalysis;
+    const isError = (response && response.status && response.status !== "completed") ||
+      (aiAnalysisEnvelope && aiAnalysisEnvelope.available === false);
+    status.classList.toggle("is-error", Boolean(isError));
+    timestamp.textContent = response && response.generated_at
+      ? `Generated ${formatDateTime(response.generated_at)}`
+      : "";
+    if (button) {
+      button.disabled = false;
+    }
+
+    if (!analysis) {
+      content.innerHTML = `<p class="empty-state">${escapeHtml(
+        response && response.message
+          ? response.message
+          : (aiAnalysisEnvelope && aiAnalysisEnvelope.message) || "No saved AI analysis is available yet."
+      )}</p>`;
+      status.textContent = isError
+        ? (response && response.message || aiAnalysisEnvelope.message || "AI analysis failed.")
+        : "Refresh AI Analysis to generate a new interpretation.";
+      return;
+    }
+
+    status.textContent = response && response.message ? response.message : "Latest completed AI analysis loaded.";
+    const sections = [
+      ["Daily Briefing", analysis.daily_briefing, ["key_points"]],
+      ["Risk Advisor View", analysis.risk_advisor_view, ["key_risks", "watch_items"]],
+      ["Trader Desk Pulse", analysis.trader_desk_pulse, ["market_signals"]],
+      ["Pattern & Inference", analysis.pattern_and_inference, ["observations"]],
+      ["Management Actions", analysis.management_actions, ["actions"]],
+      ["Overall Position", analysis.overall_position, []]
+    ];
+
+    content.innerHTML = sections.map(([title, section, listKeys]) => {
+      if (!section) {
+        return "";
+      }
+      const heading = section.headline || section.summary || section.status || "";
+      const summary = section.headline ? section.summary : "";
+      const lists = listKeys.map((key) => {
+        const values = Array.isArray(section[key]) ? section[key] : [];
+        if (key === "actions") {
+          return values.length ? `<ul>${values.map((item) => `
+            <li class="priority-${escapeAttribute(item.priority || "medium")}">
+              <strong>${escapeHtml(item.action || "")}</strong> ${escapeHtml(item.rationale || "")} (${escapeHtml(item.priority || "medium")})
+            </li>`).join("")}</ul>` : "";
+        }
+        return values.length ? `<ul>${values.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>` : "";
+      }).join("");
+      return `<section class="ai-analysis-section">
+        <h3>${escapeHtml(title)}${title === "Overall Position" ? `: ${escapeHtml(section.status || "")}` : ""}</h3>
+        ${heading && !section.headline ? `<p>${escapeHtml(heading)}</p>` : ""}
+        ${section.headline ? `<p><strong>${escapeHtml(section.headline)}</strong></p><p>${escapeHtml(summary)}</p>` : ""}
+        ${lists}
+      </section>`;
+    }).join("");
+
+    if (Array.isArray(analysis.data_quality_notes) && analysis.data_quality_notes.length) {
+      content.innerHTML += `<section class="ai-analysis-section">
+        <h3>Data Quality Notes</h3>
+        <ul>${analysis.data_quality_notes.map((note) => `<li>${escapeHtml(note)}</li>`).join("")}</ul>
+      </section>`;
+    }
+  }
+
+  function renderRiskAdvisor() {
+    const container = document.getElementById("riskAdvisorContent");
+
+    renderSectionActions("advisorActions", "advisor");
+
+    if (!container) {
+      return;
+    }
+
+    if (editModes.advisor) {
+      container.innerHTML = `
+        <div class="edit-stack">
+          ${riskAdvisorItems.map((item, index) => `
+            <div class="edit-card" data-advisor-index="${index}">
+              <div class="edit-row">
+                <label>Classification
+                  <select data-field="classification">
+                    ${["Threat", "Opportunity", "Watch"].map((option) => `<option value="${option}"${option === item.classification ? " selected" : ""}>${option}</option>`).join("")}
+                  </select>
+                </label>
+                <label>Confidence
+                  <input data-field="confidence" type="text" value="${escapeAttribute(item.confidence)}" />
+                </label>
+              </div>
+              <label>Commentary
+                <textarea data-field="commentary">${escapeHtml(item.commentary)}</textarea>
+              </label>
+            </div>
+          `).join("")}
+        </div>
+      `;
+      return;
+    }
+
+    container.innerHTML = `
+      <div class="advisor-content">
+        ${riskAdvisorItems.map((item) => {
+          const classification = String(item.classification || "Watch");
+          return `
+            <div class="advisor-call">
+              <div class="advisor-call-top">
+                <span class="advisor-label ${classification.toLowerCase()}">${escapeHtml(classification)}</span>
+                <span class="advisor-confidence">${escapeHtml(item.confidence || "Unassigned")}</span>
+              </div>
+              <p>${escapeHtml(item.commentary || "No admin-entered commentary.")}</p>
+            </div>
+          `;
+        }).join("")}
+      </div>
+    `;
+  }
+
+  function renderTraderDesk() {
+    const container = document.getElementById("traderDeskContent");
+
+    renderSectionActions("deskActions", "desk");
+
+    if (!container) {
+      return;
+    }
+
+    if (editModes.desk) {
+      container.innerHTML = traderDeskItems.map((item, index) => `
+        <article class="panel desk-card" data-desk-index="${index}">
+          <label>Card title
+            <input data-field="title" type="text" value="${escapeAttribute(item.title)}" />
+          </label>
+          <label>Commentary
+            <textarea data-field="body">${escapeHtml(item.body)}</textarea>
+          </label>
+        </article>
       `).join("");
       return;
     }
 
-    list.innerHTML = (actions.recommendedActions || [])
-      .map((item) => `<li>${escapeHtml(item)}</li>`)
-      .join("");
-  }
-
-  function bindManagementActionsTextareas() {
-    if (!managementActionsEditing) {
-      return;
-    }
-
-    document.querySelectorAll(".management-actions-input").forEach((textarea) => {
-      const resizeTextarea = () => {
-        textarea.style.height = "auto";
-        textarea.style.height = `${textarea.scrollHeight}px`;
-      };
-
-      textarea.addEventListener("input", resizeTextarea);
-      resizeTextarea();
-    });
-  }
-
-  function handleManagementActionsEdit() {
-    if (!isAdmin()) {
-      return;
-    }
-
-    managementActionsOriginal = cloneManagementActions(managementActions);
-    managementActions = cloneManagementActions(managementActions);
-    managementActionsEditing = true;
-    renderManagementActions(enrichedDashboardData || activeDashboardData);
-  }
-
-  async function saveManagementActions() {
-    if (!isAdmin()) {
-      return;
-    }
-
-    managementActions = normalizeManagementActions(readManagementActionsDraft());
-
-    if (serverModeAvailable) {
-      try {
-        managementActions = normalizeManagementActions(await apiRequest("/api/admin/management-actions", {
-          method: "PUT",
-          body: JSON.stringify(managementActions)
-        }));
-      } catch (error) {
-        setDataMessage(error.message || "Unable to save Management Actions. Please try again.", true);
-        return;
-      }
-    } else {
-      try {
-        global.localStorage.setItem(
-          MANAGEMENT_ACTIONS_STORAGE_KEY,
-          JSON.stringify(managementActions)
-        );
-      } catch (error) {
-        // The card remains editable if browser storage is unavailable.
-      }
-    }
-
-    managementActionsOriginal = null;
-    managementActionsEditing = false;
-    renderManagementActions(enrichedDashboardData || activeDashboardData);
-  }
-
-  function cancelManagementActions() {
-    managementActions = cloneManagementActions(managementActionsOriginal);
-    managementActionsOriginal = null;
-    managementActionsEditing = false;
-    renderManagementActions(enrichedDashboardData || activeDashboardData);
-  }
-
-  function addManagementAction() {
-    if (!isAdmin()) {
-      return;
-    }
-
-    managementActions = readManagementActionsDraft();
-    managementActions.takeaways.push("");
-    managementActionsEditing = true;
-    renderManagementActions(enrichedDashboardData || activeDashboardData);
-  }
-
-  function addRecommendedAction() {
-    if (!isAdmin()) {
-      return;
-    }
-
-    managementActions = readManagementActionsDraft();
-    managementActions.recommendedActions.push("");
-    managementActionsEditing = true;
-    renderManagementActions(enrichedDashboardData || activeDashboardData);
-  }
-
-  function handleManagementActionsAction(event) {
-    if (!isAdmin() || !managementActionsEditing) {
-      return;
-    }
-
-    const takeawayDeleteButton = event.target.closest("[data-management-actions-delete-takeaway]");
-
-    if (takeawayDeleteButton) {
-      const index = Number(takeawayDeleteButton.dataset.managementActionsDeleteTakeaway);
-      managementActions = readManagementActionsDraft();
-      managementActions.takeaways.splice(index, 1);
-      renderManagementActions(enrichedDashboardData || activeDashboardData);
-      return;
-    }
-
-    const recommendedDeleteButton = event.target.closest("[data-management-actions-delete-recommended]");
-
-    if (recommendedDeleteButton) {
-      const index = Number(recommendedDeleteButton.dataset.managementActionsDeleteRecommended);
-      managementActions = readManagementActionsDraft();
-      managementActions.recommendedActions.splice(index, 1);
-      renderManagementActions(enrichedDashboardData || activeDashboardData);
-    }
-  }
-
-  function readManagementActionsDraft() {
-    const takeaways = Array.from(document.querySelectorAll("[data-management-actions-field=\"takeaway\"]"))
-      .map((field) => field.value.trim())
-      .filter(Boolean);
-    const recommendedActions = Array.from(document.querySelectorAll("[data-management-actions-field=\"recommended\"]"))
-      .map((field) => field.value.trim())
-      .filter(Boolean);
-
-    return normalizeManagementActions({
-      takeaways,
-      recommendedActions
-    });
-  }
-
-  function loadManagementActions(data) {
-    try {
-      const storedActions = global.localStorage.getItem(MANAGEMENT_ACTIONS_STORAGE_KEY);
-
-      if (storedActions) {
-        return normalizeManagementActions(JSON.parse(storedActions), data);
-      }
-    } catch (error) {
-      // Use dashboard defaults when browser storage is unavailable or invalid.
-    }
-
-    return normalizeManagementActions(data || global.dashboardData);
-  }
-
-  function normalizeManagementActions(source, fallback) {
-    const sourceActions = source || {};
-    const fallbackActions = fallback || global.dashboardData || {};
-
-    return {
-      takeaways: normalizeTextList(sourceActions.takeaways, fallbackActions.takeaways),
-      recommendedActions: normalizeTextList(sourceActions.recommendedActions, fallbackActions.recommendedActions)
-    };
-  }
-
-  function normalizeTextList(items, fallbackItems) {
-    const sourceItems = Array.isArray(items) ? items : fallbackItems;
-
-    return (Array.isArray(sourceItems) ? sourceItems : [])
-      .map((item) => String(item || "").trim())
-      .filter(Boolean);
-  }
-
-  function cloneManagementActions(actions) {
-    return normalizeManagementActions(actions || managementActions || global.dashboardData);
-  }
-
-  function updateManagementActionsControls() {
-    const editButton = document.getElementById("managementActionsEditButton");
-    const saveButton = document.getElementById("managementActionsSaveButton");
-    const cancelButton = document.getElementById("managementActionsCancelButton");
-    const addButton = document.getElementById("managementActionsAddButton");
-    const addRecommendedButton = document.getElementById("recommendedActionsAddButton");
-
-    if (editButton) {
-      editButton.hidden = !isAdmin() || managementActionsEditing;
-    }
-
-    if (saveButton) {
-      saveButton.hidden = !isAdmin() || !managementActionsEditing;
-    }
-
-    if (cancelButton) {
-      cancelButton.hidden = !isAdmin() || !managementActionsEditing;
-    }
-
-    if (addButton) {
-      addButton.hidden = !isAdmin() || !managementActionsEditing;
-    }
-
-    if (addRecommendedButton) {
-      addRecommendedButton.hidden = !isAdmin() || !managementActionsEditing;
-    }
+    container.innerHTML = traderDeskItems.map((item) => `
+      <article class="panel desk-card">
+        <h3>${escapeHtml(item.title)}</h3>
+        <p>${escapeHtml(item.body || "No admin-entered desk note.")}</p>
+      </article>
+    `).join("");
   }
 
   function renderMacroSummary() {
-    const title = document.getElementById("macroSummarySectionTitle");
-    const tiles = document.getElementById("macroSummaryTiles");
+    const grid = document.getElementById("macroMetricGrid");
+    const note = document.getElementById("macroWhyItMatters");
+    const apiMacroMode = isApiMacroMode();
 
-    if (!title || !tiles || !macroSummary) {
+    renderSectionActions("macroActions", "macro");
+
+    if (!grid || !note) {
       return;
     }
 
-    title.innerHTML = macroSummaryEditing
-      ? `<input
-          class="macro-summary-title-input"
-          data-macro-section-title
-          type="text"
-          value="${escapeHtml(macroSummary.sectionTitle)}"
-        />`
-      : escapeHtml(macroSummary.sectionTitle);
+    const displaySummary = apiMacroMode
+      ? mergeMacroSummaryWithApi(macroSummary, activeDashboardData)
+      : normalizeMacroSummary(macroSummary);
+    macroSummary = displaySummary;
 
-    tiles.innerHTML = macroSummary.metrics.map((metric, index) => `
-      <div class="macro-summary-tile" data-macro-index="${index}">
-        <div class="macro-summary-icon" aria-hidden="true">
-          <i class="${escapeHtml(metric.iconClass)}"></i>
+    if (editModes.macro && !apiMacroMode) {
+      grid.innerHTML = macroSummary.metrics.map((metric, index) => `
+        <article class="panel macro-card" data-macro-index="${index}">
+          <label>Metric
+            <input data-field="title" type="text" value="${escapeAttribute(metric.title)}" />
+          </label>
+          <label>Period
+            <input data-field="period" type="text" value="${escapeAttribute(metric.period)}" />
+          </label>
+          <label>Value
+            <input data-field="value" type="text" value="${escapeAttribute(metric.value)}" />
+          </label>
+          <label>Note
+            <input data-field="note" type="text" value="${escapeAttribute(metric.note)}" />
+          </label>
+        </article>
+      `).join("");
+      note.innerHTML = `
+        <label>Why it matters
+          <textarea data-macro-why>${escapeHtml(macroSummary.whyItMatters)}</textarea>
+        </label>
+      `;
+      return;
+    }
+
+    grid.innerHTML = displaySummary.metrics.map(renderMacroCard).join("");
+
+    if (editModes.macro && apiMacroMode) {
+      note.innerHTML = `
+        <label>Why it matters
+          <textarea data-macro-why>${escapeHtml(displaySummary.whyItMatters)}</textarea>
+        </label>
+      `;
+      return;
+    }
+
+    note.innerHTML = displaySummary.whyItMatters
+      ? `<strong>Why it matters:</strong> ${escapeHtml(displaySummary.whyItMatters)}`
+      : `<span class="empty-state">No admin-entered macro commentary.</span>`;
+  }
+
+  function renderMacroCard(metric) {
+    const titleText = metric.tooltip || metric.note || "";
+    const titleAttribute = titleText ? ` title="${escapeAttribute(titleText)}"` : "";
+    const freshness = metric.freshnessStatus || "unavailable";
+
+    return `
+      <article class="panel macro-card"${titleAttribute}>
+        <div class="macro-label">${escapeHtml(metric.title)}</div>
+        <div class="macro-value">${escapeHtml(metric.value)}</div>
+        <div class="macro-period">${escapeHtml(metric.period)}</div>
+        <div class="macro-source">Source: ${escapeHtml(metric.sourceLabel || sourceShortName(metric.source))}</div>
+        <div class="macro-freshness freshness-${escapeAttribute(freshness)}">${escapeHtml(freshnessLabel(freshness))}</div>
+        ${metric.note ? `<div class="macro-note">${escapeHtml(metric.note)}</div>` : ""}
+      </article>
+    `;
+  }
+
+  function renderInferenceChain() {
+    const container = document.getElementById("inferenceContent");
+
+    renderSectionActions("chainActions", "chain");
+
+    if (!container) {
+      return;
+    }
+
+    if (editModes.chain) {
+      container.innerHTML = `
+        <div class="edit-stack">
+          <div class="edit-row">
+            ${inferenceChain.nodes.map((node, index) => `
+              <div class="edit-card" data-chain-index="${index}">
+                <label>Node label
+                  <input data-field="label" type="text" value="${escapeAttribute(node.label)}" />
+                </label>
+                <label>Detail
+                  <textarea data-field="detail">${escapeHtml(node.detail)}</textarea>
+                </label>
+              </div>
+            `).join("")}
+          </div>
+          <label>Commentary
+            <textarea data-chain-commentary>${escapeHtml(inferenceChain.commentary)}</textarea>
+          </label>
         </div>
-        ${macroSummaryEditing
-          ? `<input
-              class="macro-summary-input macro-summary-metric-title"
-              data-macro-field="title"
-              type="text"
-              value="${escapeHtml(metric.title)}"
-            />
-            <input
-              class="macro-summary-input macro-summary-period"
-              data-macro-field="period"
-              type="text"
-              value="${escapeHtml(metric.period)}"
-            />
-            <input
-              class="macro-summary-input macro-summary-value"
-              data-macro-field="value"
-              type="text"
-              value="${escapeHtml(metric.value)}"
-            />`
-          : `<div class="macro-summary-metric-title">${escapeHtml(metric.title)}</div>
-            <div class="macro-summary-period">(${escapeHtml(metric.period)})</div>
-            <strong class="macro-summary-value">${escapeHtml(metric.value)}</strong>`}
+      `;
+      return;
+    }
+
+    container.innerHTML = `
+      <div class="chain-row">
+        ${inferenceChain.nodes.map((node) => `
+          <div class="chain-node">
+            <strong>${escapeHtml(node.label)}</strong>
+            <span>${escapeHtml(node.detail || "No admin-entered detail.")}</span>
+          </div>
+        `).join("")}
       </div>
-    `).join("");
-
-    updateMacroSummaryControls();
+      <p class="chain-commentary">${escapeHtml(inferenceChain.commentary || "No admin-entered inference commentary.")}</p>
+    `;
   }
 
-  function handleMacroSummaryEdit() {
-    if (!isAdmin()) {
+  function renderGeopoliticalRisk(data) {
+    const container = document.getElementById("geopoliticalCards");
+
+    renderSectionActions("geoActions", "geo");
+
+    if (!container) {
       return;
     }
 
-    macroSummaryEditing = true;
-    renderMacroSummary();
-  }
-
-  async function saveMacroSummary() {
-    if (!isAdmin()) {
+    if (editModes.geo) {
+      container.innerHTML = geopoliticalCards.map((card, index) => `
+        <article class="panel geo-card" data-geo-index="${index}">
+          <label>Jurisdiction
+            <input data-field="jurisdiction" type="text" value="${escapeAttribute(card.jurisdiction)}" />
+          </label>
+          <label>Risk rating
+            <select data-field="rating">
+              ${RISK_SCALE.map((rating) => `<option value="${rating}"${rating === card.rating ? " selected" : ""}>${rating}</option>`).join("")}
+            </select>
+          </label>
+          <label>Current development
+            <textarea data-field="currentDevelopment">${escapeHtml(card.currentDevelopment)}</textarea>
+          </label>
+          <label>Business exposure / implication
+            <textarea data-field="implication">${escapeHtml(card.implication)}</textarea>
+          </label>
+        </article>
+      `).join("");
       return;
     }
 
-    macroSummary = readMacroSummaryDraft();
+    container.innerHTML = geopoliticalCards.map((card) => {
+      const rating = normalizeRiskRating(card.rating) || "Moderate";
+      const currentDevelopment = card.currentDevelopment || deriveGeopoliticalDevelopment(card.jurisdiction, data);
 
-    if (serverModeAvailable) {
-      try {
-        macroSummary = normalizeMacroSummary(await apiRequest("/api/admin/macro-metrics", {
-          method: "PUT",
-          body: JSON.stringify(macroSummary)
-        }));
-      } catch (error) {
-        setDataMessage(error.message || "Unable to save Macro Metrics. Please try again.", true);
-        return;
-      }
-    } else {
-      try {
-        global.localStorage.setItem(
-          MACRO_SUMMARY_STORAGE_KEY,
-          JSON.stringify(macroSummary)
-        );
-      } catch (error) {
-        // The panel remains usable if browser storage is unavailable.
-      }
-    }
-
-    macroSummaryEditing = false;
-    renderMacroSummary();
-  }
-
-  function cancelMacroSummary() {
-    macroSummaryEditing = false;
-    renderMacroSummary();
-  }
-
-  function readMacroSummaryDraft() {
-    const tiles = document.getElementById("macroSummaryTiles");
-    const sectionTitle = document.querySelector("[data-macro-section-title]");
-
-    if (!tiles) {
-      return macroSummary;
-    }
-
-    return {
-      sectionTitle: sectionTitle ? sectionTitle.value.trim() : macroSummary.sectionTitle,
-      metrics: Array.from(tiles.querySelectorAll("[data-macro-index]")).map((tile, index) => {
-        const getValue = (field) => {
-          const element = tile.querySelector(`[data-macro-field="${field}"]`);
-          return element ? element.value.trim() : macroSummary.metrics[index][field];
-        };
-
-        return {
-          id: macroSummary.metrics[index].id,
-          key: macroSummary.metrics[index].key,
-          iconClass: macroSummary.metrics[index].iconClass,
-          title: getValue("title"),
-          period: getValue("period"),
-          value: getValue("value")
-        };
-      })
-    };
-  }
-
-  function loadMacroSummary() {
-    try {
-      const storedSummary = global.localStorage.getItem(MACRO_SUMMARY_STORAGE_KEY);
-
-      if (storedSummary) {
-        return normalizeMacroSummary(JSON.parse(storedSummary));
-      }
-    } catch (error) {
-      // Use the sample strip when browser storage is unavailable or invalid.
-    }
-
-    return normalizeMacroSummary(DEFAULT_MACRO_SUMMARY);
-  }
-
-  function normalizeMacroSummary(source) {
-    const input = source || {};
-    const metrics = Array.isArray(input.metrics) ? input.metrics : [];
-
-    return {
-      sectionTitle: macroSummaryText(input.sectionTitle, DEFAULT_MACRO_SUMMARY.sectionTitle),
-      metrics: DEFAULT_MACRO_SUMMARY.metrics.map((defaultMetric, index) => {
-        const metric = metrics[index] || {};
-
-        return {
-          id: metric.id,
-          key: metric.key,
-          iconClass: metric.iconClass || defaultMetric.iconClass,
-          title: macroSummaryText(metric.title, defaultMetric.title),
-          period: macroSummaryText(metric.period, defaultMetric.period),
-          value: macroSummaryText(metric.value, defaultMetric.value)
-        };
-      })
-    };
-  }
-
-  function macroSummaryText(value, fallback) {
-    return value === null || value === undefined
-      ? fallback
-      : String(value);
-  }
-
-  function updateMacroSummaryControls() {
-    const editButton = document.getElementById("macroSummaryEditButton");
-    const saveButton = document.getElementById("macroSummarySaveButton");
-    const cancelButton = document.getElementById("macroSummaryCancelButton");
-
-    if (editButton) {
-      editButton.hidden = !isAdmin() || macroSummaryEditing;
-    }
-
-    if (saveButton) {
-      saveButton.hidden = !isAdmin() || !macroSummaryEditing;
-    }
-
-    if (cancelButton) {
-      cancelButton.hidden = !isAdmin() || !macroSummaryEditing;
-    }
+      return `
+        <article class="panel geo-card">
+          <div class="geo-card-top">
+            <h3>${escapeHtml(card.jurisdiction)}</h3>
+            <span class="rating-pill rating-${rating.toLowerCase()}">${escapeHtml(rating)}</span>
+          </div>
+          <div class="geo-label">Current development</div>
+          <p>${escapeHtml(currentDevelopment || "No admin-entered development.")}</p>
+          <div class="geo-label">Business exposure / implication</div>
+          <div class="geo-impact">${escapeHtml(card.implication || "No admin-entered implication.")}</div>
+        </article>
+      `;
+    }).join("");
   }
 
   function renderRiskRegister() {
     const body = document.getElementById("riskRegisterBody");
 
+    renderSectionActions("registerActions", "register", editModes.register ? `
+      <button class="mini-button secondary" type="button" data-action="add-risk-row">Add Row</button>
+    ` : "");
+
     if (!body) {
       return;
     }
 
-    body.innerHTML = riskRegisterRows.map((row, index) => `
-      <tr>
-        <td class="risk-register-number-cell">
-          <span>${index + 1}</span>
-          ${riskRegisterEditing ? `
-            <button
-              class="risk-register-delete"
-              type="button"
-              data-risk-register-delete="${index}"
-              aria-label="Delete risk row ${index + 1}"
-              title="Delete row"
-            >
-              <i class="fa-solid fa-trash-can"></i>
-            </button>
-          ` : ""}
-        </td>
-        ${renderRiskRegisterTextCell(row, "riskCategory")}
-        ${renderRiskRegisterTextCell(row, "riskEvent")}
-        ${renderRiskRegisterTextCell(row, "mitigant")}
-        <td class="materiality-cell">
-          ${riskRegisterEditing
-            ? `<div class="materiality-edit">
-                ${renderRiskRegisterSelect("materiality", row.materiality, MATERIALITY_OPTIONS)}
-                ${renderRiskRegisterSelect("movement", row.movement, MOVEMENT_OPTIONS)}
-              </div>`
-            : `<div class="materiality-display">
-                <span class="materiality-badge ${row.materiality.toLowerCase()}">${escapeHtml(row.materiality)}</span>
-                ${renderMovementIndicator(row.movement)}
-              </div>`}
-        </td>
-        ${renderRiskRegisterTextCell(row, "riskOwner", "risk-owner-cell")}
-      </tr>
-    `).join("");
-
-    updateRiskRegisterControls();
-  }
-
-  function renderRiskRegisterTextCell(row, field, cellClass) {
-    const classAttribute = cellClass ? ` class="${cellClass}"` : "";
-
-    return `
-      <td${classAttribute}>
-        ${riskRegisterEditing
-          ? `<input
-              class="risk-register-input"
-              type="text"
-              data-risk-register-field="${field}"
-              value="${escapeHtml(row[field])}"
-            />`
-          : `<span>${escapeHtml(row[field])}</span>`}
-      </td>
-    `;
-  }
-
-  function renderRiskRegisterSelect(field, value, options) {
-    const optionMarkup = options.map((option) => {
-      const optionValue = typeof option === "string" ? option : option.value;
-      const optionLabel = typeof option === "string"
-        ? option
-        : `${option.symbol} ${option.label}`;
+    body.innerHTML = riskRegisterRows.map((row, index) => {
+      if (editModes.register) {
+        return `
+          <tr data-risk-row="${index}">
+            <td>
+              <strong>${index + 1}</strong>
+              <button class="mini-button danger" type="button" data-action="delete-risk-row" data-index="${index}">Delete</button>
+            </td>
+            <td><input data-field="riskCategory" type="text" value="${escapeAttribute(row.riskCategory)}" /></td>
+            <td>${renderSelect("materiality", row.materiality, MATERIALITY_OPTIONS)}</td>
+            <td>${renderMovementSelect(row.movement)}</td>
+            <td><input data-field="riskOwner" type="text" value="${escapeAttribute(row.riskOwner)}" /></td>
+          </tr>
+        `;
+      }
 
       return `
-        <option value="${escapeHtml(optionValue)}"${optionValue === value ? " selected" : ""}>
-          ${escapeHtml(optionLabel)}
-        </option>
+        <tr>
+          <td>${index + 1}</td>
+          <td>${escapeHtml(row.riskCategory)}</td>
+          <td><span class="materiality-badge materiality-${row.materiality.toLowerCase()}">${escapeHtml(row.materiality)}</span></td>
+          <td>${renderMovement(row.movement)}</td>
+          <td>${escapeHtml(row.riskOwner)}</td>
+        </tr>
       `;
     }).join("");
-
-    return `<select class="risk-register-select" data-risk-register-field="${field}">${optionMarkup}</select>`;
   }
 
-  function renderMovementIndicator(movement) {
-    const selectedMovement = MOVEMENT_OPTIONS.find((option) => option.value === movement)
-      || MOVEMENT_OPTIONS[1];
+  function renderForwardCalendar() {
+    const container = document.getElementById("forwardCalendarContent");
 
-    return `
-      <span class="movement-indicator ${selectedMovement.value}">
-        <span class="movement-arrow" aria-hidden="true">${selectedMovement.symbol}</span>
-        ${selectedMovement.label}
-      </span>
+    renderSectionActions("calendarActions", "calendar", editModes.calendar ? `
+      <button class="mini-button secondary" type="button" data-action="add-calendar-row" data-group="marketEvents">Add Market Row</button>
+      <button class="mini-button secondary" type="button" data-action="add-calendar-row" data-group="businessEvents">Add Business Row</button>
+    ` : "");
+
+    if (!container) {
+      return;
+    }
+
+    if (editModes.calendar) {
+      container.innerHTML = `
+        ${renderCalendarEditGroup("Market / Economic Events", "marketEvents", forwardCalendar.marketEvents)}
+        ${renderCalendarEditGroup("Business / Political Events", "businessEvents", forwardCalendar.businessEvents)}
+      `;
+      return;
+    }
+
+    container.innerHTML = `
+      ${renderCalendarGroup("Market / Economic Events", forwardCalendar.marketEvents)}
+      ${renderCalendarGroup("Business / Political Events", forwardCalendar.businessEvents)}
     `;
   }
 
-  function handleRiskRegisterEdit() {
-    if (!isAdmin()) {
-      return;
-    }
-
-    if (riskRegisterEditing) {
-      saveRiskRegister();
-      return;
-    }
-
-    riskRegisterEditing = true;
-    renderRiskRegister();
+  function renderCalendarGroup(title, rows) {
+    return `
+      <article class="panel calendar-card">
+        <h3>${escapeHtml(title)}</h3>
+        ${rows.length ? rows.map((row) => `
+          <div class="calendar-row">
+            ${renderCalendarDate(row.date)}
+            <div class="calendar-event-content">
+              <p class="calendar-title">${escapeHtml(row.title || "Untitled event")}</p>
+              <p class="calendar-note">${escapeHtml(row.note || "")}</p>
+            </div>
+          </div>
+        `).join("") : `<p class="empty-state">No upcoming events</p>`}
+      </article>
+    `;
   }
 
-  function addRiskRegisterRow() {
-    if (!isAdmin()) {
+  function renderCalendarDate(value) {
+    const rawDate = String(value || "").trim();
+    const match = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(rawDate);
+
+    if (!match) {
+      return `<div class="calendar-date calendar-date-tbc"><span>${escapeHtml(rawDate || "TBC")}</span></div>`;
+    }
+
+    const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+    if (Number.isNaN(date.getTime())) {
+      return `<div class="calendar-date calendar-date-tbc"><span>${escapeHtml(rawDate)}</span></div>`;
+    }
+
+    const month = date.toLocaleDateString("en-GB", { month: "short", timeZone: "UTC" }).toUpperCase();
+    return `
+      <div class="calendar-date" aria-label="${escapeAttribute(rawDate)}">
+        <span class="calendar-date-day">${date.getUTCDate()}</span>
+        <span class="calendar-date-month">${month}</span>
+        <span class="calendar-date-year">${date.getUTCFullYear()}</span>
+      </div>
+    `;
+  }
+
+  function renderCalendarEditGroup(title, group, rows) {
+    return `
+      <article class="panel calendar-card">
+        <h3>${escapeHtml(title)}</h3>
+        <div class="edit-stack">
+          ${rows.map((row, index) => `
+            <div class="edit-card" data-calendar-group="${group}" data-calendar-index="${index}">
+              <div class="edit-row three">
+                <label>Date
+                  <input data-field="date" type="text" value="${escapeAttribute(row.date)}" />
+                </label>
+                <label>Title
+                  <input data-field="title" type="text" value="${escapeAttribute(row.title)}" />
+                </label>
+                <label>Relevance note
+                  <input data-field="note" type="text" value="${escapeAttribute(row.note)}" />
+                </label>
+              </div>
+              <button class="mini-button danger" type="button" data-action="delete-calendar-row" data-group="${group}" data-index="${index}">Delete Row</button>
+            </div>
+          `).join("") || `<p class="empty-state">No rows entered.</p>`}
+        </div>
+      </article>
+    `;
+  }
+
+  function renderManagementActions() {
+    const container = document.getElementById("managementActionsContent");
+
+    renderSectionActions("managementActionsControls", "actions", editModes.actions ? `
+      <button class="mini-button secondary" type="button" data-action="add-management-item" data-list="takeaways">Add Action</button>
+      <button class="mini-button secondary" type="button" data-action="add-management-item" data-list="recommendedActions">Add Recommended</button>
+    ` : "");
+
+    if (!container) {
       return;
     }
 
-    riskRegisterRows = readRiskRegisterDraft();
-    riskRegisterRows.push({
-      riskCategory: "",
-      riskEvent: "",
-      mitigant: "",
-      materiality: "Moderate",
-      movement: "unchanged",
-      riskOwner: ""
+    if (editModes.actions) {
+      container.innerHTML = `
+        ${renderManagementEditList("Actions", "takeaways", managementActions.takeaways)}
+        ${renderManagementEditList("Recommended Actions", "recommendedActions", managementActions.recommendedActions)}
+      `;
+      return;
+    }
+
+    container.innerHTML = `
+      ${renderManagementList("Actions", managementActions.takeaways)}
+      ${renderManagementList("Recommended Actions", managementActions.recommendedActions)}
+    `;
+  }
+
+  function renderManagementList(title, rows) {
+    return `
+      <article class="management-card">
+        <h3>${escapeHtml(title)}</h3>
+        ${rows.length ? `<ul>${rows.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>` : `<p class="empty-state">No admin-entered actions.</p>`}
+      </article>
+    `;
+  }
+
+  function renderManagementEditList(title, listName, rows) {
+    return `
+      <article class="management-card" data-management-list="${listName}">
+        <h3>${escapeHtml(title)}</h3>
+        <div class="edit-stack">
+          ${rows.map((item, index) => `
+            <div class="edit-card" data-management-index="${index}">
+              <label>Action
+                <textarea data-field="value">${escapeHtml(item)}</textarea>
+              </label>
+              <button class="mini-button danger" type="button" data-action="delete-management-item" data-list="${listName}" data-index="${index}">Delete</button>
+            </div>
+          `).join("") || `<p class="empty-state">No rows entered.</p>`}
+        </div>
+      </article>
+    `;
+  }
+
+  function renderOverallRisk(data, productStats) {
+    const categorySummary = buildCategoryRiskSummary(data, productStats);
+    const categories = Object.values(categorySummary.categories);
+    const overallScore = weightedAverage(categories, (item) => RISK_SCORES[item.rating], (item) => item.weight);
+    const overallRating = overallRatingFromScore(overallScore);
+    const gauge = document.getElementById("overallGauge");
+    const topDriver = categories.slice().sort((a, b) => RISK_SCORES[b.rating] - RISK_SCORES[a.rating])[0];
+
+    setText("overallRiskLabel", overallRating);
+    setText("overallRiskDriver", topDriver ? `Primary driver: ${topDriver.name} (${topDriver.rating})` : "");
+
+    if (gauge) {
+      gauge.dataset.rating = overallRating.toLowerCase();
+      gauge.style.setProperty("--risk-angle", `${gaugeAngle(overallScore).toFixed(1)}deg`);
+    }
+
+    renderCategoryRows(categorySummary.categories);
+    const hasValidCategoryData = Boolean(
+      data &&
+      data.riskSummary &&
+      data.riskSummary.categories &&
+      Object.keys(data.riskSummary.categories).length
+    );
+    renderTriggerStrip(hasValidCategoryData ? categorySummary.categories : {});
+  }
+
+  function buildCategoryRiskSummary(data, productStats) {
+    const categories = {};
+
+    data.categoryOrder.forEach((categoryId) => {
+      const category = data.categories[categoryId];
+      const calculated = data.riskSummary.categories[categoryId] || {};
+      let rating = normalizeRiskRating(calculated.rating) || "Moderate";
+
+      if (categoryId === "market") {
+        const marketRating = highestRiskRating(productStats.map((stat) => stat.status));
+        rating = highestRiskRating([rating, marketRating]);
+      }
+
+      if (categoryRiskOverrides[categoryId]) {
+        rating = categoryRiskOverrides[categoryId];
+      }
+
+      categories[categoryId] = {
+        id: categoryId,
+        name: category.name,
+        dotClass: category.dotClass,
+        rating,
+        weight: Number(category.weight || 1)
+      };
     });
-    riskRegisterEditing = true;
-    renderRiskRegister();
+
+    return { categories };
   }
 
-  function handleRiskRegisterRowAction(event) {
-    if (!isAdmin()) {
+  function renderCategoryRows(categories) {
+    const container = document.getElementById("categoryRiskRows");
+
+    if (!container) {
       return;
     }
 
-    const deleteButton = event.target.closest("[data-risk-register-delete]");
+    container.innerHTML = Object.values(categories).map((category) => {
+      const rating = category.rating;
 
-    if (!deleteButton || !riskRegisterEditing) {
-      return;
-    }
-
-    const rowIndex = Number(deleteButton.dataset.riskRegisterDelete);
-
-    if (!Number.isInteger(rowIndex)) {
-      return;
-    }
-
-    riskRegisterRows = readRiskRegisterDraft();
-    riskRegisterRows.splice(rowIndex, 1);
-    renderRiskRegister();
+      return `
+        <div class="category-row">
+          <span class="category-name"><span class="dot ${rating.toLowerCase()}"></span>${escapeHtml(category.name)}</span>
+          ${isAdmin()
+            ? `<select data-category-risk-select="${escapeAttribute(category.id)}">
+                ${RISK_SCALE.map((option) => `<option value="${option}"${option === rating ? " selected" : ""}>${option}</option>`).join("")}
+              </select>`
+            : `<span class="rating-pill rating-${rating.toLowerCase()}">${escapeHtml(rating)}</span>`}
+        </div>
+      `;
+    }).join("");
   }
 
-  async function saveRiskRegister() {
-    if (!isAdmin()) {
+  function renderSectionActions(containerId, section, extraHtml) {
+    const container = document.getElementById(containerId);
+
+    if (!container) {
       return;
     }
 
-    riskRegisterRows = readRiskRegisterDraft();
-
-    if (serverModeAvailable) {
-      try {
-        riskRegisterRows = (await apiRequest("/api/admin/risk-register", {
-          method: "PUT",
-          body: JSON.stringify({ rows: riskRegisterRows })
-        })).map(normalizeRiskRegisterRow);
-      } catch (error) {
-        setDataMessage(error.message || "Unable to save Risk Register entry. Please try again.", true);
-        return;
-      }
-    } else {
-      try {
-        global.localStorage.setItem(
-          RISK_REGISTER_STORAGE_KEY,
-          JSON.stringify(riskRegisterRows)
-        );
-      } catch (error) {
-        // The table remains usable if browser storage is unavailable.
-      }
+    if (!isAdmin()) {
+      container.innerHTML = "";
+      return;
     }
 
-    riskRegisterEditing = false;
-    renderRiskRegister();
+    const editing = Boolean(editModes[section]);
+
+    container.innerHTML = editing
+      ? `
+        ${extraHtml || ""}
+        <button class="mini-button" type="button" data-action="save-section" data-section="${section}">Save</button>
+        <button class="mini-button secondary" type="button" data-action="cancel-section" data-section="${section}">Cancel</button>
+      `
+      : `<button class="mini-button" type="button" data-action="edit-section" data-section="${section}">Edit</button>`;
+  }
+
+  function startEdit(section) {
+    if (section === "briefing" && apiModeEnabled()) {
+      return;
+    }
+    if (section === "categories") {
+      closeModal("adminPanelModal");
+      scrollToSection(SECTION_TARGETS.categories);
+      return;
+    }
+
+    if (!Object.prototype.hasOwnProperty.call(editModes, section)) {
+      return;
+    }
+
+    editSnapshots[section] = clone(getSectionState(section));
+    editModes[section] = true;
+    closeModal("adminPanelModal");
+    renderDashboard(activeDashboardData);
+    scrollToSection(SECTION_TARGETS[section]);
+  }
+
+  function saveSection(section) {
+    if (!Object.prototype.hasOwnProperty.call(editModes, section)) {
+      return;
+    }
+
+    if (section === "briefing") {
+      briefingItems = normalizeBriefing(readBriefingDraft());
+      saveJson(STORAGE_KEYS.briefing, briefingItems);
+    } else if (section === "advisor") {
+      riskAdvisorItems = normalizeRiskAdvisor(readAdvisorDraft());
+      saveJson(STORAGE_KEYS.riskAdvisor, riskAdvisorItems);
+    } else if (section === "desk") {
+      traderDeskItems = normalizeTraderDesk(readTraderDeskDraft());
+      saveJson(STORAGE_KEYS.traderDesk, traderDeskItems);
+    } else if (section === "macro") {
+      macroSummary = normalizeMacroSummary(readMacroDraft());
+      saveJson(STORAGE_KEYS.macroSummary, macroSummary);
+    } else if (section === "chain") {
+      inferenceChain = normalizeInferenceChain(readInferenceDraft());
+      saveJson(STORAGE_KEYS.inference, inferenceChain);
+    } else if (section === "geo") {
+      geopoliticalCards = normalizeGeopoliticalCards(readGeoDraft());
+      saveJson(STORAGE_KEYS.geopolitical, geopoliticalCards);
+    } else if (section === "register") {
+      riskRegisterRows = readRiskRegisterDraft();
+      saveJson(STORAGE_KEYS.riskRegister, riskRegisterRows);
+    } else if (section === "actions") {
+      managementActions = normalizeManagementActions(readManagementDraft());
+      saveJson(STORAGE_KEYS.managementActions, managementActions);
+    } else if (section === "calendar") {
+      forwardCalendar = normalizeForwardCalendar(readCalendarDraft());
+      saveJson(STORAGE_KEYS.forwardCalendar, forwardCalendar);
+    }
+
+    editModes[section] = false;
+    delete editSnapshots[section];
+    renderDashboard(activeDashboardData);
+  }
+
+  function cancelSection(section) {
+    if (!Object.prototype.hasOwnProperty.call(editModes, section)) {
+      return;
+    }
+
+    if (editSnapshots[section]) {
+      setSectionState(section, editSnapshots[section]);
+    }
+
+    editModes[section] = false;
+    delete editSnapshots[section];
+    renderDashboard(activeDashboardData);
+  }
+
+  function getSectionState(section) {
+    return {
+      briefing: briefingItems,
+      advisor: riskAdvisorItems,
+      desk: traderDeskItems,
+      macro: macroSummary,
+      chain: inferenceChain,
+      geo: geopoliticalCards,
+      register: riskRegisterRows,
+      actions: managementActions,
+      calendar: forwardCalendar
+    }[section];
+  }
+
+  function setSectionState(section, value) {
+    if (section === "briefing") {
+      briefingItems = normalizeBriefing(value);
+    } else if (section === "advisor") {
+      riskAdvisorItems = normalizeRiskAdvisor(value);
+    } else if (section === "desk") {
+      traderDeskItems = normalizeTraderDesk(value);
+    } else if (section === "macro") {
+      macroSummary = normalizeMacroSummary(value);
+    } else if (section === "chain") {
+      inferenceChain = normalizeInferenceChain(value);
+    } else if (section === "geo") {
+      geopoliticalCards = normalizeGeopoliticalCards(value);
+    } else if (section === "register") {
+      riskRegisterRows = normalizeRiskRegisterRows(value);
+    } else if (section === "actions") {
+      managementActions = normalizeManagementActions(value);
+    } else if (section === "calendar") {
+      forwardCalendar = normalizeForwardCalendar(value);
+    }
+  }
+
+  function readBriefingDraft() {
+    return Array.from(document.querySelectorAll("[data-briefing-region]")).map((regionEl) => ({
+      id: uniqueId("region"),
+      title: valueOf(regionEl, "[data-field='region-title']"),
+      sections: Array.from(regionEl.querySelectorAll("[data-briefing-section]")).map((sectionEl) => ({
+        id: uniqueId("section"),
+        title: valueOf(sectionEl, "[data-field='section-title']"),
+        items: Array.from(sectionEl.querySelectorAll("[data-briefing-item]")).map((itemEl) => ({
+          id: uniqueId("item"),
+          headline: valueOf(itemEl, "[data-field='item-headline']")
+        }))
+      }))
+    }));
+  }
+
+  function readAdvisorDraft() {
+    return Array.from(document.querySelectorAll("[data-advisor-index]")).map((card) => ({
+      classification: valueOf(card, "[data-field='classification']"),
+      confidence: valueOf(card, "[data-field='confidence']"),
+      commentary: valueOf(card, "[data-field='commentary']")
+    }));
+  }
+
+  function readTraderDeskDraft() {
+    return Array.from(document.querySelectorAll("[data-desk-index]")).map((card) => ({
+      title: valueOf(card, "[data-field='title']"),
+      body: valueOf(card, "[data-field='body']")
+    }));
+  }
+
+  function readMacroDraft() {
+    return {
+      metrics: Array.from(document.querySelectorAll("[data-macro-index]")).map((card) => ({
+        title: valueOf(card, "[data-field='title']"),
+        period: valueOf(card, "[data-field='period']"),
+        value: valueOf(card, "[data-field='value']"),
+        note: valueOf(card, "[data-field='note']")
+      })),
+      whyItMatters: valueOf(document, "[data-macro-why]")
+    };
+  }
+
+  function readInferenceDraft() {
+    return {
+      nodes: Array.from(document.querySelectorAll("[data-chain-index]")).map((card) => ({
+        label: valueOf(card, "[data-field='label']"),
+        detail: valueOf(card, "[data-field='detail']")
+      })),
+      commentary: valueOf(document, "[data-chain-commentary]")
+    };
+  }
+
+  function readGeoDraft() {
+    return Array.from(document.querySelectorAll("[data-geo-index]")).map((card) => ({
+      jurisdiction: valueOf(card, "[data-field='jurisdiction']"),
+      rating: normalizeRiskRating(valueOf(card, "[data-field='rating']")) || "Moderate",
+      currentDevelopment: valueOf(card, "[data-field='currentDevelopment']"),
+      implication: valueOf(card, "[data-field='implication']")
+    }));
   }
 
   function readRiskRegisterDraft() {
-    const body = document.getElementById("riskRegisterBody");
+    return Array.from(document.querySelectorAll("[data-risk-row]")).map((row) => normalizeRiskRegisterRow({
+      riskCategory: valueOf(row, "[data-field='riskCategory']"),
+      materiality: valueOf(row, "[data-field='materiality']"),
+      movement: valueOf(row, "[data-field='movement']"),
+      riskOwner: valueOf(row, "[data-field='riskOwner']")
+    }));
+  }
 
-    if (!body) {
-      return riskRegisterRows;
+  function readCalendarDraft() {
+    return {
+      marketEvents: readCalendarGroup("marketEvents"),
+      businessEvents: readCalendarGroup("businessEvents")
+    };
+  }
+
+  function readCalendarGroup(group) {
+    return Array.from(document.querySelectorAll(`[data-calendar-group="${group}"]`)).map((row) => ({
+      date: valueOf(row, "[data-field='date']"),
+      title: valueOf(row, "[data-field='title']"),
+      note: valueOf(row, "[data-field='note']")
+    }));
+  }
+
+  function readManagementDraft() {
+    return {
+      takeaways: readManagementList("takeaways"),
+      recommendedActions: readManagementList("recommendedActions")
+    };
+  }
+
+  function readManagementList(listName) {
+    const list = document.querySelector(`[data-management-list="${listName}"]`);
+
+    if (!list) {
+      return [];
     }
 
-    return Array.from(body.querySelectorAll("tr")).map((row) => {
-      const getValue = (field) => {
-        const fieldElement = row.querySelector(`[data-risk-register-field="${field}"]`);
-        return fieldElement ? fieldElement.value : "";
-      };
+    return Array.from(list.querySelectorAll("[data-management-index]"))
+      .map((row) => valueOf(row, "[data-field='value']"))
+      .filter((value) => value.trim() !== "");
+  }
 
-      return normalizeRiskRegisterRow({
-        riskCategory: getValue("riskCategory"),
-        riskEvent: getValue("riskEvent"),
-        mitigant: getValue("mitigant"),
-        materiality: getValue("materiality"),
-        movement: getValue("movement") || "unchanged",
-        riskOwner: getValue("riskOwner")
-      });
-    });
+  function renderAdminPanel() {
+    const list = document.getElementById("adminEditList");
+
+    setText("adminCurrentMarketFile", lastUploadedFile ? lastUploadedFile.name : "--");
+    setText("adminLastUploaded", lastUploadedFile ? formatDateTime(lastUploadedFile.uploadedAt) : "--");
+    setText("adminRecordsLoaded", lastUploadedFile ? lastUploadedFile.recordsLoaded : "--");
+    setText("adminKrisMapped", lastUploadedFile
+      ? `${lastUploadedFile.krisMapped} KRIs, ${lastUploadedFile.marketSeriesMapped} market series`
+      : "--");
+
+    if (!list) {
+      return;
+    }
+
+    list.innerHTML = EDITABLE_SECTIONS.map((section) => {
+      const isNewsSection = section.id === "briefing" && apiModeEnabled();
+      return `
+      <div class="admin-edit-item">
+        <div>
+          <strong>${escapeHtml(section.label)}</strong>
+          <span>${escapeHtml(section.detail)}</span>
+        </div>
+        <button
+          class="admin-action-button"
+          type="button"
+          data-action="${section.id === "categories" ? "open-section" : (isNewsSection ? "refresh-news" : "edit-section")}"
+          data-section="${section.id}"
+          data-target="${SECTION_TARGETS[section.id] || ""}"
+        >
+          ${section.id === "categories" ? "Open" : (isNewsSection ? "Refresh" : "Edit")}
+        </button>
+      </div>
+    `;
+    }).join("");
+  }
+
+  function updateAdminUi() {
+    document.body.classList.toggle("is-admin", isAdmin());
+
+    const adminButton = document.getElementById("adminModeButton");
+
+    if (adminButton) {
+      adminButton.classList.toggle("is-admin", isAdmin());
+      adminButton.textContent = isAdmin() ? "Admin On" : "Admin";
+    }
   }
 
   function loadRiskRegisterRows() {
-    try {
-      const storedRows = global.localStorage.getItem(RISK_REGISTER_STORAGE_KEY);
+    return normalizeRiskRegisterRows(loadJson(STORAGE_KEYS.riskRegister, DEFAULT_RISK_REGISTER_ROWS));
+  }
 
-      if (storedRows) {
-        const parsedRows = JSON.parse(storedRows);
+  function loadMacroSummary(data) {
+    return mergeMacroSummaryWithApi(
+      normalizeMacroSummary(loadJson(STORAGE_KEYS.macroSummary, DEFAULT_MACRO_SUMMARY)),
+      data
+    );
+  }
 
-        if (Array.isArray(parsedRows)) {
-          return parsedRows.map(normalizeRiskRegisterRow);
-        }
+  function loadBriefingItems() {
+    return normalizeBriefing(loadJson(STORAGE_KEYS.briefing, DEFAULT_BRIEFING));
+  }
+
+  function loadRiskAdvisorItems() {
+    return normalizeRiskAdvisor(loadJson(STORAGE_KEYS.riskAdvisor, DEFAULT_RISK_ADVISOR));
+  }
+
+  function loadTraderDeskItems() {
+    return normalizeTraderDesk(loadJson(STORAGE_KEYS.traderDesk, DEFAULT_TRADER_DESK));
+  }
+
+  function loadInferenceChain() {
+    return normalizeInferenceChain(loadJson(STORAGE_KEYS.inference, DEFAULT_INFERENCE_CHAIN));
+  }
+
+  function loadGeopoliticalCards() {
+    return normalizeGeopoliticalCards(loadJson(STORAGE_KEYS.geopolitical, DEFAULT_GEOPOLITICAL_CARDS));
+  }
+
+  function loadForwardCalendar() {
+    return normalizeForwardCalendar(loadJson(STORAGE_KEYS.forwardCalendar, DEFAULT_FORWARD_CALENDAR));
+  }
+
+  function loadManagementActions(data) {
+    const fallback = {
+      takeaways: Array.isArray(data.takeaways) ? data.takeaways : [],
+      recommendedActions: Array.isArray(data.recommendedActions) ? data.recommendedActions : []
+    };
+
+    return normalizeManagementActions(loadJson(STORAGE_KEYS.managementActions, fallback));
+  }
+
+  function loadCategoryRiskOverrides() {
+    const stored = loadJson(STORAGE_KEYS.categoryOverrides, {});
+    const result = {};
+
+    Object.keys(stored || {}).forEach((key) => {
+      const rating = normalizeRiskRating(stored[key]);
+
+      if (rating) {
+        result[key] = rating;
       }
-    } catch (error) {
-      // Use the sample rows when browser storage is unavailable or invalid.
-    }
+    });
 
-    return DEFAULT_RISK_REGISTER_ROWS.map(normalizeRiskRegisterRow);
+    return result;
+  }
+
+  function normalizeRiskRegisterRows(rows) {
+    return (Array.isArray(rows) && rows.length ? rows : DEFAULT_RISK_REGISTER_ROWS)
+      .map(normalizeRiskRegisterRow);
   }
 
   function normalizeRiskRegisterRow(row) {
@@ -2246,189 +2504,376 @@
 
     return {
       riskCategory: String(source.riskCategory || ""),
-      riskEvent: String(source.riskEvent || ""),
-      mitigant: String(source.mitigant || ""),
       materiality,
       movement,
       riskOwner: String(source.riskOwner || "")
     };
   }
 
-  function updateRiskRegisterControls() {
-    const editButton = document.getElementById("riskRegisterEditButton");
-    const addButton = document.getElementById("riskRegisterAddButton");
-
-    if (editButton) {
-      editButton.hidden = !isAdmin();
-      editButton.innerHTML = riskRegisterEditing
-        ? `<i class="fa-solid fa-floppy-disk"></i> Save`
-        : `<i class="fa-solid fa-pen-to-square"></i> Edit`;
-      editButton.setAttribute("aria-label", riskRegisterEditing ? "Save risk register" : "Edit risk register");
-    }
-
-    if (addButton) {
-      addButton.hidden = !isAdmin() || !riskRegisterEditing;
-    }
-  }
-
-  function renderOverallRisk(data) {
-    const manualSummary = buildManualOverallSummary(data);
-    const overall = manualSummary.overall;
-    const gauge = document.getElementById("overallGauge");
-
-    setText("overallRiskLabel", overall.rating.toUpperCase());
-
-    if (gauge) {
-      gauge.style.setProperty("--risk-angle", `${overall.gaugeAngle.toFixed(1)}deg`);
-      gauge.dataset.rating = overall.rating.toLowerCase();
-    }
-
-    renderCategoryRiskRows(data, manualSummary.categories);
-  }
-
-  function renderCategoryRiskRows(data, manualCategories) {
-    const container = document.getElementById("categoryRiskRows");
-
-    if (!container) {
-      return;
-    }
-
-    container.innerHTML = data.categoryOrder.map((categoryId) => {
-      const summary = manualCategories[categoryId];
-      const isOpen = openCategoryRiskId === categoryId;
-      const optionButtons = !isAdmin() ? "" : RISK_RATINGS.map((rating) => {
-        const normalizedRating = rating.toLowerCase();
-        const isSelected = summary.rating === rating;
-
-        return `
-          <button
-            class="risk-option ${normalizedRating}${isSelected ? " is-selected" : ""}"
-            type="button"
-            data-category-risk-option="${escapeHtml(categoryId)}"
-            data-risk-rating="${escapeHtml(rating)}"
-            aria-pressed="${isSelected ? "true" : "false"}"
-          >
-            ${escapeHtml(rating)}
-          </button>
-        `;
-      }).join("");
-
-      return `
-        <div class="category-risk-control${isOpen ? " is-open" : ""}">
-          <button
-            class="category-row"
-            type="button"
-            data-category-risk-toggle="${escapeHtml(categoryId)}"
-            aria-expanded="${isOpen ? "true" : "false"}"
-          >
-            <span>
-            <span class="category-dot ${summary.dotClass}"></span>
-            ${escapeHtml(summary.name)}
-            </span>
-
-            ${renderStatusBadge(summary.rating)}
-          </button>
-
-          <div class="risk-options">
-            ${optionButtons}
-          </div>
-        </div>
-      `;
-    }).join("");
-  }
-
-  async function handleCategoryRiskControlClick(event) {
-    const option = event.target.closest("[data-category-risk-option]");
-
-    if (option) {
-      if (!isAdmin()) {
-        return;
-      }
-
-      const categoryId = option.dataset.categoryRiskOption;
-      const rating = normalizeManualRating(option.dataset.riskRating);
-
-      if (categoryId && rating) {
-        categoryRiskOverrides[categoryId] = rating;
-
-        if (serverModeAvailable) {
-          try {
-            await apiRequest(`/api/admin/risk-categories/${encodeURIComponent(categoryId)}`, {
-              method: "PUT",
-              body: JSON.stringify({ rating })
-            });
-          } catch (error) {
-            setDataMessage(error.message || "Unable to save Risk by Category. Please try again.", true);
-          }
-        }
-
-        openCategoryRiskId = "";
-        rerenderOverallRiskOnly();
-      }
-
-      return;
-    }
-
-    const toggle = event.target.closest("[data-category-risk-toggle]");
-
-    if (!toggle) {
-      return;
-    }
-
-    if (!isAdmin()) {
-      return;
-    }
-
-    const categoryId = toggle.dataset.categoryRiskToggle;
-    openCategoryRiskId = openCategoryRiskId === categoryId ? "" : categoryId;
-    rerenderOverallRiskOnly();
-  }
-
-  function rerenderOverallRiskOnly() {
-    if (enrichedDashboardData) {
-      renderOverallRisk(enrichedDashboardData);
-    }
-  }
-
-  function buildManualOverallSummary(data) {
-    const categories = {};
-    const categoryItems = data.categoryOrder.map((categoryId) => {
-      const calculatedSummary = data.riskSummary.categories[categoryId];
-      const rating = categoryRiskOverrides[categoryId] || calculatedSummary.rating;
-      const score = RATING_SCORES[rating] || calculatedSummary.score || RATING_SCORES.Moderate;
-      const weight = Number(data.categories[categoryId].weight || 1);
-
-      categories[categoryId] = {
-        ...calculatedSummary,
-        rating,
-        score
-      };
-
-      return {
-        score,
-        weight
-      };
-    });
-    const overallScore = weightedAverage(
-      categoryItems,
-      (item) => item.score,
-      (item) => item.weight
-    );
+  function normalizeMacroSummary(source) {
+    const input = source || {};
+    const sourceMetrics = Array.isArray(input.metrics) ? input.metrics : [];
 
     return {
-      categories,
-      overall: {
-        score: overallScore,
-        rating: gaugeRatingFromScore(overallScore),
-        gaugeAngle: gaugeAngle(overallScore)
-      }
+      metrics: DEFAULT_MACRO_SUMMARY.metrics.map((defaultMetric, index) => {
+        const metric = sourceMetrics.find((candidate) => candidate && candidate.key === defaultMetric.key) ||
+          sourceMetrics[index] ||
+          {};
+
+        return {
+          key: textOr(metric.key, defaultMetric.key),
+          title: textOr(metric.title, defaultMetric.title),
+          period: textOr(metric.period, defaultMetric.period),
+          value: textOr(metric.value, defaultMetric.value),
+          source: textOr(metric.source, defaultMetric.source),
+          sourceLabel: textOr(metric.sourceLabel, sourceShortName(metric.source || defaultMetric.source)),
+          freshnessStatus: textOr(metric.freshnessStatus || metric.freshness_status, defaultMetric.freshnessStatus),
+          sourceUrl: textOr(metric.sourceUrl || metric.source_url, ""),
+          tooltip: textOr(metric.tooltip, ""),
+          note: textOr(metric.note, defaultMetric.note)
+        };
+      }),
+      whyItMatters: textOr(input.whyItMatters, "")
     };
   }
 
-  function normalizeManualRating(value) {
-    const normalized = String(value || "").toLowerCase();
+  function mergeMacroSummaryWithApi(summary, data) {
+    const normalized = normalizeMacroSummary(summary || DEFAULT_MACRO_SUMMARY);
+    const apiMetrics = macroMetricsFromDashboardData(data);
 
-    return RISK_RATINGS.find((rating) => rating.toLowerCase() === normalized) || "";
+    if (!apiMetrics.length) {
+      return normalized;
+    }
+
+    return {
+      metrics: apiMetrics,
+      whyItMatters: normalized.whyItMatters
+    };
+  }
+
+  function macroMetricsFromDashboardData(data) {
+    const source = data || {};
+    const snapshot = source.backendSnapshot || {};
+    const rawIndicators = Array.isArray(source.macroIndicators)
+      ? source.macroIndicators
+      : Array.isArray(source.macro_indicators)
+        ? source.macro_indicators
+        : Array.isArray(snapshot.macro_indicators)
+          ? snapshot.macro_indicators
+          : [];
+
+    if (!rawIndicators.length) {
+      return [];
+    }
+
+    const byKey = rawIndicators.reduce((result, item) => {
+      if (item && item.indicator_key) {
+        result[item.indicator_key] = item;
+      }
+      return result;
+    }, {});
+
+    return MACRO_INDICATOR_DEFINITIONS.map((definition) => {
+      const raw = byKey[definition.key] || {};
+      const rawValue = raw.value;
+      const valueNumber = rawValue === null || rawValue === undefined || rawValue === ""
+        ? null
+        : Number(rawValue);
+      const hasValue = Number.isFinite(valueNumber);
+      const sourceName = raw.source || definition.source;
+      const freshness = raw.freshness_status || raw.freshnessStatus || (hasValue ? "fresh" : "unavailable");
+      const metadata = raw.metadata_json || raw.metadataJson || {};
+      const isCrudeOnly = definition.key === "crude_oil_production";
+
+      return {
+        key: definition.key,
+        title: raw.display_name || definition.title,
+        period: raw.reporting_period || "Unavailable",
+        value: hasValue ? formatMacroValue(valueNumber, raw.unit || definition.unit, definition.key) : "Data unavailable",
+        source: sourceName,
+        sourceLabel: sourceShortName(sourceName),
+        freshnessStatus: String(freshness).toLowerCase(),
+        sourceUrl: raw.source_url || "",
+        note: isCrudeOnly ? "Crude only, excluding condensate" : "",
+        tooltip: isCrudeOnly
+          ? "Crude oil production excludes condensate. Combined crude plus condensate may be preserved only as metadata."
+          : metadata.definition || ""
+      };
+    });
+  }
+
+  function formatMacroValue(value, unit, key) {
+    if (!Number.isFinite(Number(value))) {
+      return "Data unavailable";
+    }
+
+    const numeric = Number(value);
+    const unitText = unit || "";
+
+    if (unitText === "%") {
+      return `${formatFixedTrimmed(numeric, 2)}%`;
+    }
+
+    if (unitText === "mbpd") {
+      return `${numeric.toFixed(3)} mbpd`;
+    }
+
+    if (key === "nigeria_pmi" || unitText === "index") {
+      return `${formatFixedTrimmed(numeric, 1)} index`;
+    }
+
+    return unitText ? `${formatFixedTrimmed(numeric, 2)} ${unitText}` : formatFixedTrimmed(numeric, 2);
+  }
+
+  function formatFixedTrimmed(value, decimals) {
+    return Number(value).toFixed(decimals).replace(/\.?0+$/, "");
+  }
+
+  function sourceShortName(source) {
+    const text = String(source || "");
+    const lower = text.toLowerCase();
+
+    if (lower.includes("national bureau of statistics")) {
+      return "NBS";
+    }
+
+    if (lower.includes("nuprc") || lower.includes("upstream petroleum")) {
+      return "NUPRC";
+    }
+
+    if (lower.includes("stanbic") || lower.includes("s&p")) {
+      return "Stanbic IBTC / S&P Global";
+    }
+
+    return text || "Official source";
+  }
+
+  function freshnessLabel(status) {
+    const normalized = String(status || "unavailable").toLowerCase();
+
+    if (normalized === "extraction_error") {
+      return "Extraction error";
+    }
+
+    return titleCase(normalized.replace(/_/g, " "));
+  }
+
+  function isApiMacroMode() {
+    const hasMacroRecords = activeDashboardData && (
+      Array.isArray(activeDashboardData.macroIndicators) ||
+      Array.isArray(activeDashboardData.macro_indicators) ||
+      (activeDashboardData.backendSnapshot && Array.isArray(activeDashboardData.backendSnapshot.macro_indicators))
+    );
+
+    return Boolean(hasMacroRecords) ||
+      (global.OilRiskConfig && typeof global.OilRiskConfig.isApiMode === "function" && global.OilRiskConfig.isApiMode());
+  }
+
+  function normalizeBriefing(source) {
+    const regions = Array.isArray(source) ? source : DEFAULT_BRIEFING;
+
+    return regions.map((region, regionIndex) => ({
+      id: String(region.id || `region-${regionIndex}`),
+      title: textOr(region.title, `Region ${regionIndex + 1}`),
+      sections: (Array.isArray(region.sections) ? region.sections : []).map((section, sectionIndex) => ({
+        id: String(section.id || `section-${regionIndex}-${sectionIndex}`),
+        title: textOr(section.title, "Market"),
+        items: (Array.isArray(section.items) ? section.items : []).map((item, itemIndex) => ({
+          id: String(item.id || `item-${regionIndex}-${sectionIndex}-${itemIndex}`),
+          headline: textOr(item.headline, "")
+        }))
+      }))
+    }));
+  }
+
+  function normalizeRiskAdvisor(source) {
+    const items = Array.isArray(source) ? source : DEFAULT_RISK_ADVISOR;
+
+    return DEFAULT_RISK_ADVISOR.map((defaultItem, index) => {
+      const item = items[index] || {};
+      const classification = ["Threat", "Opportunity", "Watch"].includes(item.classification)
+        ? item.classification
+        : defaultItem.classification;
+
+      return {
+        classification,
+        confidence: textOr(item.confidence, defaultItem.confidence),
+        commentary: textOr(item.commentary, "")
+      };
+    });
+  }
+
+  function normalizeTraderDesk(source) {
+    const items = Array.isArray(source) ? source : DEFAULT_TRADER_DESK;
+
+    return DEFAULT_TRADER_DESK.map((defaultItem, index) => {
+      const item = items[index] || {};
+
+      return {
+        title: textOr(item.title, defaultItem.title),
+        body: textOr(item.body, "")
+      };
+    });
+  }
+
+  function normalizeInferenceChain(source) {
+    const input = source || {};
+    const nodes = Array.isArray(input.nodes) ? input.nodes : [];
+
+    return {
+      nodes: DEFAULT_INFERENCE_CHAIN.nodes.map((defaultNode, index) => {
+        const node = nodes[index] || {};
+
+        return {
+          label: textOr(node.label, defaultNode.label),
+          detail: textOr(node.detail, "")
+        };
+      }),
+      commentary: textOr(input.commentary, "")
+    };
+  }
+
+  function normalizeGeopoliticalCards(source) {
+    const items = Array.isArray(source) ? source : DEFAULT_GEOPOLITICAL_CARDS;
+
+    return DEFAULT_GEOPOLITICAL_CARDS.map((defaultCard, index) => {
+      const card = items[index] || {};
+
+      return {
+        jurisdiction: textOr(card.jurisdiction, defaultCard.jurisdiction),
+        rating: normalizeRiskRating(card.rating) || defaultCard.rating,
+        currentDevelopment: textOr(card.currentDevelopment, ""),
+        implication: textOr(card.implication, "")
+      };
+    });
+  }
+
+  function normalizeForwardCalendar(source) {
+    const input = source || {};
+
+    return {
+      marketEvents: normalizeCalendarRows(input.marketEvents),
+      businessEvents: normalizeCalendarRows(input.businessEvents)
+    };
+  }
+
+  function normalizeCalendarRows(rows) {
+    return (Array.isArray(rows) ? rows : []).map((row) => ({
+      date: textOr(row.date, ""),
+      title: textOr(row.title, ""),
+      note: textOr(row.note, "")
+    }));
+  }
+
+  function normalizeManagementActions(source) {
+    const input = source || {};
+
+    return {
+      takeaways: normalizeTextList(input.takeaways),
+      recommendedActions: normalizeTextList(input.recommendedActions)
+    };
+  }
+
+  function normalizeTextList(items) {
+    return (Array.isArray(items) ? items : [])
+      .map((item) => String(item || "").trim())
+      .filter(Boolean);
+  }
+
+  function renderSelect(field, value, options) {
+    return `
+      <select data-field="${field}">
+        ${options.map((option) => `<option value="${escapeAttribute(option)}"${option === value ? " selected" : ""}>${escapeHtml(option)}</option>`).join("")}
+      </select>
+    `;
+  }
+
+  function renderMovementSelect(value) {
+    return `
+      <select data-field="movement">
+        ${MOVEMENT_OPTIONS.map((option) => `<option value="${option.value}"${option.value === value ? " selected" : ""}>${option.symbol} ${option.label}</option>`).join("")}
+      </select>
+    `;
+  }
+
+  function renderMovement(value) {
+    const selected = MOVEMENT_OPTIONS.find((option) => option.value === value) || MOVEMENT_OPTIONS[1];
+
+    return `
+      <span class="trend-indicator trend-${selected.value}">
+        ${selected.symbol} ${escapeHtml(selected.label)}
+      </span>
+    `;
+  }
+
+  function buildCategoryLabel(sectionTitle, regionTitle) {
+    return categoryLabel(sectionTitle, regionTitle);
+  }
+
+  function categoryLabel(sectionTitle, regionTitle) {
+    const normalized = String(`${sectionTitle} ${regionTitle}`).toLowerCase();
+
+    if (normalized.includes("nigeria")) {
+      return "Nigeria";
+    }
+
+    if (normalized.includes("geo") || normalized.includes("polit")) {
+      return "Geopolitical";
+    }
+
+    if (normalized.includes("refin")) {
+      return "Refining";
+    }
+
+    if (normalized.includes("supply") || normalized.includes("opec")) {
+      return "Supply";
+    }
+
+    if (normalized.includes("fx") || normalized.includes("macro")) {
+      return "FX";
+    }
+
+    return "Market";
+  }
+
+  function categoryClass(sectionTitle) {
+    return categoryLabel(sectionTitle, "").toLowerCase();
+  }
+
+  function deriveGeopoliticalDevelopment(jurisdiction, data) {
+    const normalized = String(jurisdiction || "").toLowerCase();
+
+    if (normalized.includes("nigeria")) {
+      return findBriefingText("Nigeria");
+    }
+
+    if (normalized.includes("africa")) {
+      return findBriefingText("Africa");
+    }
+
+    if (normalized.includes("middle") || normalized.includes("route")) {
+      return (data.geopoliticalWatchlist && data.geopoliticalWatchlist[0]) || "";
+    }
+
+    return findBriefingText("International");
+  }
+
+  function findBriefingText(regionTitle) {
+    const region = briefingItems.find((item) => item.title.toLowerCase() === regionTitle.toLowerCase());
+
+    if (!region) {
+      return "";
+    }
+
+    for (const section of region.sections || []) {
+      const item = (section.items || []).find((candidate) => candidate.headline);
+
+      if (item) {
+        return item.headline;
+      }
+    }
+
+    return "";
   }
 
   function weightedAverage(items, getScore, getWeight) {
@@ -2436,8 +2881,8 @@
     let totalWeight = 0;
 
     items.forEach((item) => {
-      const score = getScore(item);
-      const weight = getWeight(item);
+      const score = Number(getScore(item));
+      const weight = Number(getWeight(item));
 
       if (!Number.isFinite(score) || !Number.isFinite(weight) || weight <= 0) {
         return;
@@ -2447,15 +2892,19 @@
       totalWeight += weight;
     });
 
-    return totalWeight > 0 ? weightedScore / totalWeight : RATING_SCORES.Moderate;
+    return totalWeight > 0 ? weightedScore / totalWeight : 2;
   }
 
-  function ratingFromScore(score) {
-    if (score >= 2.34) {
+  function overallRatingFromScore(score) {
+    if (score >= 3.25) {
+      return "Catastrophic";
+    }
+
+    if (score >= 2.5) {
       return "High";
     }
 
-    if (score >= 1.67) {
+    if (score >= 1.75) {
       return "Moderate";
     }
 
@@ -2463,68 +2912,70 @@
   }
 
   function gaugeAngle(score) {
-    const clampedScore = Math.max(1, Math.min(3, score));
-    return -80 + ((clampedScore - 1) / 2) * 160;
+    const clamped = Math.max(1, Math.min(4, score));
+    return -78 + ((clamped - 1) / 3) * 156;
   }
 
-  function gaugeRatingFromScore(score) {
-    if (score >= 2.5) {
-      return "Catastrophic";
-    }
-
-    if (score >= 2) {
-      return "High";
-    }
-
-    if (score >= 1.5) {
-      return "Moderate";
-    }
-
-    return "Low";
+  function highestRiskRating(ratings) {
+    return ratings
+      .map(normalizeRiskRating)
+      .filter(Boolean)
+      .sort((a, b) => RISK_SCORES[b] - RISK_SCORES[a])[0] || "Moderate";
   }
 
-  function getDeltaClass(tone) {
-    if (tone === "positive") {
-      return "delta-positive";
-    }
+  function normalizeRiskRating(value) {
+    const normalized = String(value || "").toLowerCase().trim();
 
-    if (tone === "negative") {
-      return "delta-negative";
-    }
-
-    return "delta-neutral";
+    return RISK_SCALE.find((rating) => rating.toLowerCase() === normalized) || "";
   }
 
-  function setLoading(isLoading) {
-    const refreshButton = document.getElementById("refreshDataButton");
-
-    if (refreshButton) {
-      refreshButton.disabled = isLoading;
-      refreshButton.classList.toggle("is-loading", isLoading);
-    }
+  function formatKriValue(kri, value) {
+    return global.OilRiskEngine.formatValue(kri, value);
   }
 
-  function setDataMessage(message, isError) {
-    const messageEl = document.getElementById("dataLoadMessage");
-
-    if (!messageEl) {
-      return;
+  function formatDelta(kri, change, percentChange) {
+    if (change === null) {
+      return "N/A";
     }
 
-    messageEl.textContent = message || "";
-    messageEl.classList.toggle("error", Boolean(isError));
+    const sign = change > 0 ? "+" : change < 0 ? "-" : "";
+    const absolute = Math.abs(change);
+    let valueText;
+
+    if (kri.commodityValueFormat) {
+      valueText = global.OilRiskEngine.formatCommodityValue(
+        absolute,
+        kri.commodityCurrency || "USD",
+        kri.commodityUnit || kri.unit
+      );
+    } else if (kri.format === "currency" || kri.format === "currency0") {
+      valueText = `$${formatPlainNumber(absolute, kri.format === "currency0" ? 0 : Number(kri.decimals || 2))}`;
+    } else if (kri.format === "percent") {
+      valueText = `${formatPlainNumber(absolute, 1)} pt`;
+    } else {
+      valueText = formatPlainNumber(absolute, Number(kri.decimals || 2));
+    }
+
+    if (!Number.isFinite(percentChange)) {
+      return `${sign}${valueText}`;
+    }
+
+    return `${sign}${valueText} (${sign}${Math.abs(percentChange).toFixed(1)}%)`;
   }
 
-  function setText(id, value) {
-    const element = document.getElementById(id);
-
-    if (element) {
-      element.textContent = value;
+  function formatPlainNumber(value, decimals) {
+    if (!Number.isFinite(Number(value))) {
+      return "N/A";
     }
+
+    return Number(value).toLocaleString("en-US", {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals
+    });
   }
 
   function formatDate(value) {
-    const date = parseDate(value);
+    const date = value instanceof Date ? value : parseDate(value);
 
     if (!date) {
       return "--";
@@ -2558,7 +3009,12 @@
       return null;
     }
 
-    const date = new Date(String(value).length === 10 ? `${value}T00:00:00` : value);
+    if (value instanceof Date && !Number.isNaN(value.getTime())) {
+      return value;
+    }
+
+    const text = String(value);
+    const date = new Date(text.length === 10 ? `${text}T00:00:00` : text);
     return Number.isNaN(date.getTime()) ? null : date;
   }
 
@@ -2566,6 +3022,76 @@
     return String(value || "")
       .replace(/[-_]+/g, " ")
       .replace(/\b\w/g, (letter) => letter.toUpperCase());
+  }
+
+  function textOr(value, fallback) {
+    return value === null || value === undefined ? fallback : String(value);
+  }
+
+  function valueOf(root, selector) {
+    const element = root && root.querySelector ? root.querySelector(selector) : null;
+    return element ? element.value.trim() : "";
+  }
+
+  function setText(id, value) {
+    const element = document.getElementById(id);
+
+    if (element) {
+      element.textContent = value;
+    }
+  }
+
+  function setDataMessage(message, isError) {
+    const element = document.getElementById("dataLoadMessage");
+
+    if (!element) {
+      return;
+    }
+
+    element.textContent = message || "";
+    element.classList.toggle("error", Boolean(isError));
+  }
+
+  function scrollToSection(selector) {
+    const target = selector ? document.querySelector(selector) : null;
+
+    if (target) {
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }
+
+  function loadJson(key, fallback) {
+    try {
+      const stored = global.localStorage.getItem(key);
+
+      if (stored) {
+        return JSON.parse(stored);
+      }
+    } catch (error) {
+      // Local storage may be blocked; fall back to built-in content.
+    }
+
+    return clone(fallback);
+  }
+
+  function saveJson(key, value) {
+    try {
+      global.localStorage.setItem(key, JSON.stringify(value));
+    } catch (error) {
+      setDataMessage("Unable to save local edits in this browser session.", true);
+    }
+  }
+
+  function clone(value) {
+    if (typeof structuredClone === "function") {
+      return structuredClone(value);
+    }
+
+    return JSON.parse(JSON.stringify(value));
+  }
+
+  function uniqueId(prefix) {
+    return `${prefix}-${Date.now()}-${Math.round(Math.random() * 100000)}`;
   }
 
   function escapeHtml(value) {
@@ -2577,13 +3103,46 @@
       .replace(/'/g, "&#039;");
   }
 
+  function escapeAttribute(value) {
+    return escapeHtml(value).replace(/`/g, "&#096;");
+  }
+
+  function buildDashboardAIContext() {
+    const data = global.OilRiskData.cloneDashboardData(enrichedDashboardData || activeDashboardData);
+    const categorySummary = buildCategoryRiskSummary(data, currentMarketStats);
+    const categories = Object.values(categorySummary.categories);
+    const overallScore = weightedAverage(
+      categories,
+      (item) => RISK_SCORES[item.rating],
+      (item) => item.weight
+    );
+
+    return global.OilRiskAIService.buildDashboardAIContext({
+      dashboardData: data,
+      marketStats: currentMarketStats,
+      macro: macroSummary,
+      geopolitical: {
+        cards: geopoliticalCards,
+        watchlist: data.geopoliticalWatchlist || []
+      },
+      companyRisk: {
+        riskRegister: riskRegisterRows
+      },
+      overallRisk: {
+        score: overallScore,
+        rating: overallRatingFromScore(overallScore),
+        categories: categorySummary.categories
+      },
+      briefing: briefingItems,
+      riskAdvisor: riskAdvisorItems,
+      traderDesk: traderDeskItems,
+      managementActions
+    });
+  }
+
   global.OilRiskDashboard = {
-    refreshData,
+    buildDashboardAIContext,
     renderDashboard,
-    setDashboardData(data) {
-      activeDashboardData = global.OilRiskData.cloneDashboardData(data);
-      renderDashboard(activeDashboardData);
-    },
     getData() {
       return global.OilRiskData.cloneDashboardData(enrichedDashboardData || activeDashboardData);
     }
