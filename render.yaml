@@ -1,0 +1,39 @@
+services:
+  - type: web
+    name: daily-oil-risk-backend
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+      - key: ENVIRONMENT
+        value: production
+
+  - type: cron
+    name: forward-calendar-daily-refresh
+    runtime: python
+    rootDir: backend
+    schedule: "0 5 * * *" # 05:00 UTC = 06:00 West Africa Time (WAT, UTC+1)
+    buildCommand: pip install -r requirements.txt
+    startCommand: python scripts/refresh_calendar.py
+    envVars:
+      - key: DATABASE_URL
+        fromService:
+          type: web
+          name: daily-oil-risk-backend
+      - key: SUPABASE_URL
+        fromService:
+          type: web
+          name: daily-oil-risk-backend
+      - key: SUPABASE_KEY
+        fromService:
+          type: web
+          name: daily-oil-risk-backend
+      - key: ENVIRONMENT
+        value: production

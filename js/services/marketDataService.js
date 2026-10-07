@@ -50,6 +50,81 @@
     })
   ]);
 
+  const INTERNATIONAL_MACRO_DEFAULTS = Object.freeze([
+  {
+    "indicator_key": "usa_headline_inflation",
+    "display_name": "Headline Inflation",
+    "unit": "%",
+    "source": "U.S. Bureau of Labor Statistics"
+  },
+  {
+    "indicator_key": "usa_core_inflation",
+    "display_name": "Core Inflation",
+    "unit": "%",
+    "source": "U.S. Bureau of Labor Statistics"
+  },
+  {
+    "indicator_key": "usa_real_gdp_growth",
+    "display_name": "Real GDP Growth",
+    "unit": "%",
+    "source": "U.S. Bureau of Economic Analysis"
+  },
+  {
+    "indicator_key": "usa_policy_rate",
+    "display_name": "Effective Federal Funds Rate",
+    "unit": "%",
+    "source": "Federal Reserve / FRED"
+  },
+  {
+    "indicator_key": "usa_unemployment_rate",
+    "display_name": "Unemployment Rate",
+    "unit": "%",
+    "source": "U.S. Bureau of Labor Statistics"
+  },
+  {
+    "indicator_key": "usa_crude_inventories",
+    "display_name": "Commercial Crude Inventories",
+    "unit": "million barrels",
+    "source": "U.S. Energy Information Administration"
+  },
+  {
+    "indicator_key": "global_real_gdp_growth",
+    "display_name": "World Real GDP Growth",
+    "unit": "%",
+    "source": "IMF World Economic Outlook"
+  },
+  {
+    "indicator_key": "global_inflation",
+    "display_name": "World Inflation",
+    "unit": "%",
+    "source": "IMF World Economic Outlook"
+  },
+  {
+    "indicator_key": "china_manufacturing_pmi",
+    "display_name": "China Manufacturing PMI",
+    "unit": "index",
+    "source": "National Bureau of Statistics of China"
+  },
+  {
+    "indicator_key": "global_oil_demand_growth",
+    "display_name": "Global Oil Demand Growth",
+    "unit": "mbpd",
+    "source": "U.S. Energy Information Administration"
+  },
+  {
+    "indicator_key": "global_energy_price_index",
+    "display_name": "Energy Price Index",
+    "unit": "index",
+    "source": "World Bank Commodity Price Data / Pink Sheet"
+  },
+  {
+    "indicator_key": "broad_usd_index",
+    "display_name": "Broad U.S. Dollar Index",
+    "unit": "index",
+    "source": "Federal Reserve / FRED"
+  }
+]);
+
   async function getDashboardSnapshot() {
     const endpoint = (global.OilRiskConfig && global.OilRiskConfig.MARKET_API_ENDPOINTS && global.OilRiskConfig.MARKET_API_ENDPOINTS.snapshot)
       || "/api/dashboard/snapshot";
@@ -208,6 +283,7 @@
 
       const prepared = applyObservationsToDashboard(data, observations, status);
       prepared.backendSnapshot = snapshot;
+      prepared.risk_register = (snapshot && snapshot.risk_register) || [];
       prepared.backendMarketStats = indexMarketStats(snapshot ? snapshot.market_stats : []);
       attachMarketHistories(prepared.backendMarketStats, historyByInstrument);
       prepared.macroIndicators = normalizeMacroIndicators(snapshot ? snapshot.macro_indicators : []);
@@ -215,7 +291,7 @@
         type: "api",
         label: sourceLabel,
         lastRefreshed: snapshot ? (snapshot.generated_at || snapshot.snapshot_date) : new Date().toISOString(),
-        refreshedAtFormatted: formatIsoToUtc(snapshot ? snapshot.generated_at : null)
+        refreshedAtFormatted: formatIsoToLagos(snapshot ? snapshot.generated_at : null)
       };
       prepared.apiUnavailable = false;
 
@@ -234,6 +310,7 @@
         });
         const prepared = applyObservationsToDashboard(data, lastSuccessfulObservations, status);
         prepared.backendSnapshot = lastSuccessfulSnapshot;
+        prepared.risk_register = (lastSuccessfulSnapshot && lastSuccessfulSnapshot.risk_register) || [];
         prepared.backendMarketStats = indexMarketStats(lastSuccessfulSnapshot.market_stats || []);
         attachMarketHistories(prepared.backendMarketStats, lastSuccessfulHistoryByInstrument);
         prepared.macroIndicators = normalizeMacroIndicators(lastSuccessfulSnapshot.macro_indicators || [], { forceStale: true });
@@ -241,7 +318,7 @@
           type: "api",
           label: "OilPriceAPI (Stale)",
           lastRefreshed: lastSuccessfulSnapshot.generated_at,
-          refreshedAtFormatted: formatIsoToUtc(lastSuccessfulSnapshot.generated_at),
+          refreshedAtFormatted: formatIsoToLagos(lastSuccessfulSnapshot.generated_at),
           stale: true,
           errorMessage: "Live market data temporarily unavailable."
         };
@@ -377,6 +454,30 @@
     return global.OilRiskMarketDataModel.normalizeCollection(Array.from(byObservation.values()));
   }
 
+  function publicationCycleFreshness(raw) {
+    const key = raw.indicator_key;
+    const metadata = raw.metadata_json || raw.metadataJson || {};
+    const cycle = metadata.expected_publication_cycle || (
+      ["global_real_gdp_growth", "global_inflation"].includes(key) ? "weo" :
+      key === "global_oil_demand_growth" ? "outlook" :
+      key === "usa_crude_inventories" ? "weekly" :
+      ["usa_policy_rate", "broad_usd_index"].includes(key) ? "daily" :
+      key.includes("gdp_growth") ? "quarterly" : "monthly");
+    let date;
+    if (["weo", "outlook"].includes(cycle)) date = new Date(raw.published_at || "");
+    else if (/^\d{4}-\d{2}-\d{2}$/.test(raw.reporting_period || "")) date = new Date(raw.reporting_period + "T00:00:00Z");
+    else {
+      const quarter = /^Q([1-4]) (\d{4})$/.exec(raw.reporting_period || "");
+      const month = /^([A-Za-z]+) (\d{4})$/.exec(raw.reporting_period || "");
+      const names = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
+      const index = month ? names.indexOf(month[1].slice(0,3).toLowerCase()) : -1;
+      date = quarter ? new Date(Date.UTC(Number(quarter[2]), Number(quarter[1]) * 3 - 1, 28)) :
+        index >= 0 ? new Date(Date.UTC(Number(month[2]), index, 28)) : new Date(NaN);
+    }
+    const windows = {daily:10,weekly:21,monthly:75,quarterly:180,weo:220,outlook:75};
+    return Number.isFinite(date.getTime()) && (Date.now() - date.getTime()) / 86400000 <= windows[cycle] ? "fresh" : "stale";
+  }
+
   function normalizeMacroIndicators(indicators, options) {
     const settings = options || {};
     const byKey = {};
@@ -387,7 +488,7 @@
       }
     });
 
-    return MACRO_INDICATOR_DEFAULTS.map((defaults) => {
+    return [...MACRO_INDICATOR_DEFAULTS, ...INTERNATIONAL_MACRO_DEFAULTS].map((defaults) => {
       const raw = byKey[defaults.indicator_key];
 
       if (!raw) {
@@ -431,8 +532,8 @@
         published_at: raw.published_at || null,
         retrieved_at: raw.retrieved_at || null,
         status: hasNumericValue ? (raw.status || "published") : "unavailable",
-        freshness_status: shouldForceStale
-          ? "stale"
+        freshness_status: !hasNumericValue ? "unavailable" : shouldForceStale
+          ? publicationCycleFreshness(raw)
           : (raw.freshness_status || raw.freshnessStatus || (hasNumericValue ? "fresh" : "unavailable")),
         metadata_json: raw.metadata_json || raw.metadataJson || {}
       };
@@ -585,12 +686,21 @@
     };
   }
 
-  function formatIsoToUtc(isoString) {
+  function formatIsoToLagos(isoString) {
     if (!isoString) return "--";
     try {
       const dt = new Date(isoString);
       if (isNaN(dt.getTime())) return isoString;
-      return dt.toUTCString().replace("GMT", "UTC");
+      return new Intl.DateTimeFormat("en-GB", {
+        weekday: "short",
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        timeZone: "Africa/Lagos",
+        timeZoneName: "short"
+      }).format(dt);
     } catch (_) {
       return isoString;
     }

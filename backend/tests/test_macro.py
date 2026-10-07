@@ -457,7 +457,7 @@ def test_freshness_determination():
 # 10. Honest Null != Zero Tests
 def test_null_is_not_zero(in_memory_db):
     results = get_latest_macro_indicators(in_memory_db)
-    assert len(results) == 6
+    assert len(results) == 18
     for r in results:
         assert r.value is None
         assert r.freshness_status == "unavailable"
@@ -481,7 +481,7 @@ def test_macro_api_endpoints(client, in_memory_db):
     resp = client.get("/api/macro/latest")
     assert resp.status_code == 200
     data = resp.json()
-    assert len(data) == 6
+    assert len(data) == 18
     by_key = {d["indicator_key"]: d for d in data}
     assert by_key["headline_inflation"]["value"] == 15.39
     assert by_key["headline_inflation"]["reporting_period"] == "Aug 2026"
@@ -522,7 +522,7 @@ def test_macro_refresh_endpoint_uses_provider_contract(client):
 
     assert resp.status_code == 200
     data = resp.json()
-    assert data["requested"] == 6
+    assert data["requested"] == 18
     assert data["stored"] == 1
     assert data["failed"] == 0
     assert data["indicators"][0]["indicator_key"] == "headline_inflation"
@@ -533,6 +533,6 @@ def test_dashboard_snapshot_includes_macro(client, in_memory_db):
     assert resp.status_code == 200
     data = resp.json()
     assert "macro_indicators" in data
-    assert len(data["macro_indicators"]) == 6
+    assert len(data["macro_indicators"]) == 18
     keys = [m["indicator_key"] for m in data["macro_indicators"]]
     assert set(keys) == set(CANONICAL_MACRO_CONFIG.keys())

@@ -10,6 +10,15 @@ from app.schemas.dashboard import (
     MacroIndicatorItem,
     RiskRegisterItem,
 )
+from app.schemas.calendar import (
+    CalendarEventCreate,
+    CalendarEventItem,
+    CalendarEventUpdate,
+    CalendarMigrationRequest,
+    CalendarMigrationResponse,
+    CalendarRefreshResponse,
+    ProviderRefreshResult,
+)
 from app.schemas.health import HealthResponse
 from app.schemas.market import (
     HistoryPoint,
@@ -30,6 +39,12 @@ __all__ = [
     "AIAnalyseResponse",
     "AIChatRequest",
     "AIChatResponse",
+    "CalendarEventCreate",
+    "CalendarEventItem",
+    "CalendarEventUpdate",
+    "CalendarMigrationRequest",
+    "CalendarMigrationResponse",
+    "CalendarRefreshResponse",
     "DashboardContentItem",
     "DashboardSnapshotResponse",
     "HealthResponse",
@@ -43,5 +58,6 @@ __all__ = [
     "MarketRefreshResponse",
     "NormalizedObservation",
     "ProductSpreadItem",
+    "ProviderRefreshResult",
     "RiskRegisterItem",
 ]

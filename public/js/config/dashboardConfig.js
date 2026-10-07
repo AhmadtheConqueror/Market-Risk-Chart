@@ -134,6 +134,12 @@
     refresh: "/api/news/refresh"
   });
 
+  const CALENDAR_API_ENDPOINTS = Object.freeze({
+    events: "/api/calendar/events",
+    refresh: "/api/calendar/refresh",
+    migrateLegacy: "/api/calendar/migrate-legacy"
+  });
+
   global.OilRiskConfig = Object.freeze({
     DATA_SOURCE_MODE,
     dataSourceMode: runtimeConfig.dataSourceMode || DATA_SOURCE_MODE,
@@ -145,6 +151,7 @@
     MARKET_API_ENDPOINTS,
     AI_API_ENDPOINTS,
     NEWS_API_ENDPOINTS,
+    CALENDAR_API_ENDPOINTS,
     aiEnabled: runtimeConfig.aiEnabled === true,
     marketHistoryDays: 90,
     staleAfterHours: 72

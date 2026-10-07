@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Iterable
 
 from app.models.market import MarketInstrument, MarketObservation
@@ -12,16 +12,72 @@ class SourcePolicy:
     preferred_symbol: str
     source_label: str
     benchmark_definition: str
+    # "confirmed" for direct benchmarks (Brent, WTI, Forcados)
+    # "proxy"     for API generic series (Naphtha, Gasoil, Gasoline, Jet)
+    benchmark_status: str = "confirmed"
+    # Canonical unit string as returned by the provider (barrel, metric_ton, tonne, gallon)
+    canonical_unit: str = "barrel"
 
 
 SOURCE_POLICIES: dict[str, SourcePolicy] = {
-    "brent": SourcePolicy("oilpriceapi", "BRENT_CRUDE_USD", "OilPriceAPI", "ICE Brent Crude Futures"),
-    "wti": SourcePolicy("oilpriceapi", "WTI_USD", "OilPriceAPI", "WTI Crude Oil Futures"),
-    "forcados": SourcePolicy("internal_excel", "PCABC00", "Internal market workbook", "Forcados FOB Nigeria physical assessment"),
-    "naphtha": SourcePolicy("internal_excel", "PAAAM00", "Internal market workbook", "Naphtha FOB Rdam Barge physical assessment"),
-    "gasoil": SourcePolicy("internal_excel", "AAVJI00", "Internal market workbook", "Gasoil 0.1%S FOB Med Cargo physical assessment"),
-    "gasoline": SourcePolicy("internal_excel", "PGABM00", "Internal market workbook", "Gasoline Prem Unleaded 10ppmS FOB AR Barge physical assessment"),
-    "jet": SourcePolicy("internal_excel", "PJAAV00", "Internal market workbook", "Jet FOB NWE Cargo physical assessment"),
+    # ── Direct / confirmed benchmarks ──────────────────────────────────────────
+    "brent": SourcePolicy(
+        "oilpriceapi", "BRENT_CRUDE_USD",
+        "OilPriceAPI",
+        "ICE Brent Crude Futures",
+        benchmark_status="confirmed",
+        canonical_unit="barrel",
+    ),
+    "wti": SourcePolicy(
+        "oilpriceapi", "WTI_USD",
+        "OilPriceAPI",
+        "WTI Crude Oil Futures",
+        benchmark_status="confirmed",
+        canonical_unit="barrel",
+    ),
+    "forcados": SourcePolicy(
+        "internal_excel", "PCABC00",
+        "Internal market workbook",
+        "Forcados FOB Nigeria",
+        benchmark_status="confirmed",
+        canonical_unit="barrel",
+    ),
+
+    # ── API proxy series (switched from Excel physical assessments) ─────────────
+    # Discovery confirmed 2026-09-30: all four codes accessible on this account.
+    # Units returned by provider:
+    #   NAPHTHA_USD  → metric_ton  (USD/metric ton: use ÷ 8.90 bbl/mt for spread)
+    #   GASOIL_USD   → tonne       (USD/tonne:      use ÷ 7.44 bbl/mt for spread)
+    #   GASOLINE_USD → gallon      (USD/gallon:     use × 42  gal/bbl for spread)
+    #   JET_FUEL_USD → gallon      (USD/gallon:     use × 42  gal/bbl for spread)
+    "naphtha": SourcePolicy(
+        "oilpriceapi", "NAPHTHA_USD",
+        "OilPriceAPI",
+        "Naphtha — API market proxy",
+        benchmark_status="proxy",
+        canonical_unit="metric_ton",
+    ),
+    "gasoil": SourcePolicy(
+        "oilpriceapi", "GASOIL_USD",
+        "OilPriceAPI",
+        "ICE Low Sulphur Gasoil — API proxy",
+        benchmark_status="proxy",
+        canonical_unit="tonne",
+    ),
+    "gasoline": SourcePolicy(
+        "oilpriceapi", "GASOLINE_USD",
+        "OilPriceAPI",
+        "RBOB Gasoline — API proxy",
+        benchmark_status="proxy",
+        canonical_unit="gallon",
+    ),
+    "jet": SourcePolicy(
+        "oilpriceapi", "JET_FUEL_USD",
+        "OilPriceAPI",
+        "Jet Fuel — API proxy",
+        benchmark_status="proxy",
+        canonical_unit="gallon",
+    ),
 }
 
 

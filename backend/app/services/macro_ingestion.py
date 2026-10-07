@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.models.macro import MacroIndicator, utc_now
 from app.providers.macro.base import MacroDataProvider, MacroObservation
 from app.providers.macro.factory import get_macro_providers
+from app.providers.macro.international import SPECS
 from app.schemas.macro import MacroIndicatorResponse, MacroRefreshSummary
 
 logger = logging.getLogger(__name__)
@@ -67,6 +68,34 @@ CANONICAL_MACRO_CONFIG: dict[str, dict[str, Any]] = {
     },
 }
 
+# Existing Nigeria definitions remain unchanged; prefixed keys need no schema migration.
+for _key, (_title, _unit, _source, _cycle, _series) in SPECS.items():
+    CANONICAL_MACRO_CONFIG[_key] = {
+        "display_name": _title, "unit": _unit, "frequency": _cycle,
+        "expected_source": _source, "min_val": Decimal("-100"),
+        "max_val": Decimal("100000"),
+    }
+
+for _key in SPECS:
+    _config = CANONICAL_MACRO_CONFIG[_key]
+    if _key in {"usa_policy_rate", "usa_unemployment_rate", "china_manufacturing_pmi"}:
+        _config.update(min_val=Decimal("0"), max_val=Decimal("100"))
+    elif _config["unit"] == "index" or _key == "usa_crude_inventories":
+        _config.update(min_val=Decimal("0.00000001"), max_val=Decimal("10000"))
+    elif _key == "global_oil_demand_growth":
+        _config.update(min_val=Decimal("-50"), max_val=Decimal("50"))
+    else:
+        _config.update(min_val=Decimal("-50"), max_val=Decimal("500"))
+
+
+def macro_geography(key: str) -> str:
+    return "usa" if key.startswith("usa_") else "global" if key in SPECS else "nigeria"
+
+
+def aware(value: datetime) -> datetime:
+    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
+
+
 MONTH_MAP = {
     "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
     "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
@@ -78,6 +107,13 @@ MONTH_MAP = {
 def parse_period_approx_date(period_str: str) -> datetime | None:
     """Approximate the end date of a reporting period for freshness calculation."""
     p = period_str.strip()
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", p):
+        try:
+            return datetime.fromisoformat(p).replace(tzinfo=timezone.utc)
+        except ValueError:
+            return None
+    if re.fullmatch(r"\d{4}", p):
+        return datetime(int(p), 12, 31, tzinfo=timezone.utc)
 
     # Match monthly like "Aug 2026" or "August 2026"
     m_match = re.match(r'^([A-Za-z]+)\s+(\d{4})$', p)
@@ -111,16 +147,24 @@ def determine_freshness(
     - Monthly: fresh if within ~75 days of period end (allowing ~2.5 months for publication cycle).
     - Quarterly: fresh if within ~180 days of period end (allowing ~6 months for release).
     """
-    now = as_of or datetime.now(timezone.utc)
+    now = aware(as_of or datetime.now(timezone.utc))
+    frequency = CANONICAL_MACRO_CONFIG.get(indicator_key, {}).get("frequency", "monthly")
+    if frequency in {"weo", "outlook"}:
+        if published_at is None:
+            return "stale"
+        window = 220 if frequency == "weo" else 75
+        return "fresh" if (now - aware(published_at)).days <= window else "stale"
     period_end = parse_period_approx_date(reporting_period)
     if not period_end:
-        return "fresh"
+        return "stale"
 
     config = CANONICAL_MACRO_CONFIG.get(indicator_key, {})
     frequency = config.get("frequency", "monthly")
 
     days_elapsed = (now - period_end).total_seconds() / 86400.0
 
+    if frequency in {"daily", "weekly"}:
+        return "fresh" if days_elapsed <= (10 if frequency == "daily" else 21) else "stale"
     if frequency == "quarterly":
         # GDP is released with a 2-3 month lag after quarter end
         return "fresh" if days_elapsed <= 180 else "stale"
@@ -142,6 +186,8 @@ def validate_macro_observation(obs: MacroObservation) -> None:
         raise ValueError(f"Value for {obs.indicator_key} must be numeric, got {type(obs.value)}")
 
     val_dec = Decimal(str(obs.value))
+    if not val_dec.is_finite():
+        raise ValueError("Macro value must be finite")
     if val_dec < config["min_val"] or val_dec > config["max_val"]:
         raise ValueError(
             f"Sanity check failed for {obs.indicator_key}: value {val_dec} out of bounds "
@@ -155,20 +201,25 @@ def validate_macro_observation(obs: MacroObservation) -> None:
         raise ValueError(f"Source missing for {obs.indicator_key}")
 
 
-def upsert_macro_observation(db: Session, obs: MacroObservation) -> tuple[MacroIndicator, str]:
+def upsert_macro_observation(db: Session, obs: MacroObservation, *, commit: bool = True, records_by_key: dict | None = None) -> tuple[MacroIndicator, str]:
     """
     Idempotent upsert of a macro observation.
     Composite key: (indicator_key, reporting_period, source)
     Returns (record, "stored" | "updated" | "unchanged").
     """
     validate_macro_observation(obs)
+    obs.metadata_json = {
+        **(obs.metadata_json or {}), "geography": macro_geography(obs.indicator_key),
+        "expected_publication_cycle": CANONICAL_MACRO_CONFIG[obs.indicator_key]["frequency"],
+    }
 
     stmt = select(MacroIndicator).where(
         MacroIndicator.indicator_key == obs.indicator_key,
         MacroIndicator.reporting_period == obs.reporting_period,
         MacroIndicator.source == obs.source,
     )
-    existing = db.execute(stmt).scalars().first()
+    cache_key = (obs.indicator_key, obs.reporting_period, obs.source)
+    existing = records_by_key.get(cache_key) if records_by_key is not None else db.execute(stmt).scalars().first()
 
     now = utc_now()
     if existing is None:
@@ -187,8 +238,11 @@ def upsert_macro_observation(db: Session, obs: MacroObservation) -> tuple[MacroI
             created_at=now,
         )
         db.add(new_record)
-        db.commit()
-        db.refresh(new_record)
+        if records_by_key is not None:
+            records_by_key[cache_key] = new_record
+        if commit:
+            db.commit()
+            db.refresh(new_record)
         return new_record, "stored"
 
     # Check if value or metadata changed (revision)
@@ -210,16 +264,18 @@ def upsert_macro_observation(db: Session, obs: MacroObservation) -> tuple[MacroI
         existing.published_at = obs.published_at or existing.published_at
         existing.metadata_json = new_meta
         existing.retrieved_at = now
-        db.commit()
-        db.refresh(existing)
+        if commit:
+            db.commit()
+            db.refresh(existing)
         return existing, "updated"
     else:
         # Unchanged observation; update retrieved_at timestamp
         existing.retrieved_at = now
         if obs.metadata_json and existing.metadata_json != obs.metadata_json:
             existing.metadata_json = {**(existing.metadata_json or {}), **obs.metadata_json}
-        db.commit()
-        db.refresh(existing)
+        if commit:
+            db.commit()
+            db.refresh(existing)
         return existing, "unchanged"
 
 
@@ -227,97 +283,84 @@ async def run_macro_refresh(
     db: Session,
     providers: list[MacroDataProvider] | None = None,
 ) -> MacroRefreshSummary:
-    """
-    Refresh all macro indicators from official publisher providers with fault isolation.
-    """
-    active_providers = providers if providers is not None else get_macro_providers()
-    total_requested = len(CANONICAL_MACRO_CONFIG)
-    stored_count = 0
-    updated_count = 0
-    unchanged_count = 0
-    failed_count = 0
-    errors: list[dict[str, str]] = []
-    processed_indicators: list[MacroIndicatorResponse] = []
-
-    for provider in active_providers:
-        provider_name = provider.provider_name
+    """Isolate fetch failures; commit each publisher batch without per-history-row round trips."""
+    active = providers if providers is not None else get_macro_providers()
+    counts = {"stored": 0, "updated": 0, "unchanged": 0}
+    errors = []
+    processed = []
+    for provider in active:
         try:
             observations = await provider.fetch_latest()
-            for obs in observations:
-                try:
-                    record, outcome = upsert_macro_observation(db, obs)
-                    if outcome == "stored":
-                        stored_count += 1
-                    elif outcome == "updated":
-                        updated_count += 1
-                    else:
-                        unchanged_count += 1
+        except Exception as exc:
+            logger.warning("Macro provider %s could not be retrieved", provider.provider_name)
+            errors.append({"provider": provider.provider_name, "error": str(exc)})
+            continue
+        valid = []
+        for obs in observations:
+            try:
+                validate_macro_observation(obs)
+                valid.append(obs)
+            except Exception as exc:
+                errors.append({"indicator": obs.indicator_key, "source": provider.provider_name, "error": str(exc)})
+        if not valid:
+            if not observations:
+                errors.append({"provider": provider.provider_name, "error": "Official publication returned no observations"})
+            continue
+        try:
+            keys = {obs.indicator_key for obs in valid}
+            records = db.scalars(select(MacroIndicator).where(MacroIndicator.indicator_key.in_(keys))).all()
+            cache = {(r.indicator_key, r.reporting_period, r.source): r for r in records}
+            outcomes = [upsert_macro_observation(db, obs, commit=False, records_by_key=cache) for obs in valid]
+            db.commit()
+            for record, outcome in outcomes:
+                counts[outcome] += 1
+                processed.append(macro_response(record))
+        except Exception as exc:
+            db.rollback()
+            logger.warning("Macro batch %s could not be persisted", provider.provider_name)
+            errors.append({"provider": provider.provider_name, "error": str(exc)})
+    return MacroRefreshSummary(requested=len(CANONICAL_MACRO_CONFIG), **counts,
+        failed=len(errors), indicators=processed, errors=errors)
 
-                    freshness = determine_freshness(
-                        record.indicator_key,
-                        record.reporting_period,
-                        record.published_at,
-                    )
 
-                    processed_indicators.append(
-                        MacroIndicatorResponse(
-                            id=record.id,
-                            indicator_key=record.indicator_key,
-                            display_name=record.display_name,
-                            value=float(record.value),
-                            unit=record.unit,
-                            reporting_period=record.reporting_period,
-                            source=record.source,
-                            source_url=record.source_url,
-                            published_at=record.published_at.isoformat() if record.published_at else None,
-                            retrieved_at=record.retrieved_at.isoformat() if record.retrieved_at else None,
-                            status=record.status,
-                            freshness_status=freshness,
-                            metadata_json=record.metadata_json or {},
-                        )
-                    )
-                except Exception as ex:
-                    logger.error("Failed to persist observation %s: %s", obs.indicator_key, ex)
-                    failed_count += 1
-                    errors.append({
-                        "indicator": obs.indicator_key,
-                        "source": provider_name,
-                        "error": str(ex),
-                    })
-        except Exception as e:
-            logger.error("Macro provider %s failed during fetch: %s", provider_name, e)
-            failed_count += 1
-            errors.append({
-                "provider": provider_name,
-                "error": str(e),
-            })
-
-    return MacroRefreshSummary(
-        requested=total_requested,
-        stored=stored_count,
-        updated=updated_count,
-        unchanged=unchanged_count,
-        failed=failed_count,
-        indicators=processed_indicators,
-        errors=errors,
+def macro_response(record) -> MacroIndicatorResponse:
+    return MacroIndicatorResponse(
+        id=record.id, indicator_key=record.indicator_key, display_name=record.display_name,
+        value=float(record.value), unit=record.unit, reporting_period=record.reporting_period,
+        source=record.source, source_url=record.source_url,
+        published_at=record.published_at.isoformat() if record.published_at else None,
+        retrieved_at=record.retrieved_at.isoformat() if record.retrieved_at else None,
+        status=record.status,
+        freshness_status=determine_freshness(record.indicator_key, record.reporting_period, record.published_at),
+        metadata_json=record.metadata_json or {},
     )
 
 
 def get_latest_macro_indicators(db: Session) -> list[MacroIndicatorResponse]:
     """
-    Retrieve the latest verified period for each of the six canonical indicators.
+    Retrieve the latest verified period for each canonical indicator.
     Returns honest unavailable state if an indicator is not yet stored.
     """
     results: list[MacroIndicatorResponse] = []
-
+    periods = db.execute(select(MacroIndicator.id, MacroIndicator.indicator_key,
+        MacroIndicator.reporting_period, MacroIndicator.published_at).where(
+        MacroIndicator.indicator_key.in_(CANONICAL_MACRO_CONFIG))).all()
+    grouped = {key: [] for key in CANONICAL_MACRO_CONFIG}
+    for period in periods:
+        grouped[period.indicator_key].append(period)
+    selected = {}
     for key, config in CANONICAL_MACRO_CONFIG.items():
-        stmt = (
-            select(MacroIndicator)
-            .where(MacroIndicator.indicator_key == key)
-            .order_by(MacroIndicator.id.desc())
-            .limit(1)
-        )
-        record = db.execute(stmt).scalars().first()
+        candidates = grouped[key]
+        if config["frequency"] in {"weo", "outlook"}:
+            candidates = [r for r in candidates if r.reporting_period == str(datetime.now(timezone.utc).year)]
+        candidate = max(candidates, key=period_sort_key, default=None)
+        if candidate:
+            selected[key] = candidate.id
+    # Two bounded queries serve the complete section, regardless of history length.
+    records = {record.id: record for record in db.scalars(select(MacroIndicator).where(
+        MacroIndicator.id.in_(selected.values()))).all()}
+    for key, config in CANONICAL_MACRO_CONFIG.items():
+        record = records.get(selected.get(key))
 
         if record is not None:
             freshness = determine_freshness(
@@ -358,7 +401,8 @@ def get_latest_macro_indicators(db: Session) -> list[MacroIndicatorResponse]:
                     retrieved_at=None,
                     status="unavailable",
                     freshness_status="unavailable",
-                    metadata_json={},
+                    metadata_json={"geography": macro_geography(key),
+                                   "expected_publication_cycle": config["frequency"]},
                 )
             )
 
@@ -370,13 +414,11 @@ def get_macro_history(db: Session, indicator_key: str, limit: int = 50) -> list[
     if indicator_key not in CANONICAL_MACRO_CONFIG:
         raise ValueError(f"Unknown indicator key '{indicator_key}'")
 
-    stmt = (
-        select(MacroIndicator)
-        .where(MacroIndicator.indicator_key == indicator_key)
-        .order_by(MacroIndicator.id.desc())
-        .limit(limit)
-    )
-    records = db.execute(stmt).scalars().all()
+    periods = db.execute(select(MacroIndicator.id, MacroIndicator.reporting_period, MacroIndicator.published_at).where(
+        MacroIndicator.indicator_key == indicator_key)).all()
+    ids = [row.id for row in sorted(periods, key=period_sort_key, reverse=True)[:limit]]
+    records = sorted(db.scalars(select(MacroIndicator).where(MacroIndicator.id.in_(ids))).all(),
+                     key=period_sort_key, reverse=True)
 
     results: list[MacroIndicatorResponse] = []
     for r in records:
@@ -399,3 +441,9 @@ def get_macro_history(db: Session, indicator_key: str, limit: int = 50) -> list[
             )
         )
     return results
+
+
+def period_sort_key(record):
+    period = parse_period_approx_date(record.reporting_period)
+    return (period or datetime.min.replace(tzinfo=timezone.utc),
+            aware(record.published_at) if record.published_at else datetime.min.replace(tzinfo=timezone.utc), record.id)

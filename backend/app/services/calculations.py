@@ -6,12 +6,18 @@ from decimal import Decimal
 from typing import Any, Sequence
 
 # Canonical conversion factors (barrels per metric ton)
+# Used for USD/mt and USD/tonne observations only.
 PRODUCT_CONVERSIONS: dict[str, float] = {
     "naphtha": 8.90,
     "gasoil": 7.44,
     "gasoline": 8.33,
     "jet": 7.70,
 }
+
+# Products whose OilPriceAPI unit is USD/gallon → must use × 42 conversion,
+# NOT the barrels-per-metric-ton factor.
+# (Confirmed 2026-09-30 discovery: GASOLINE_USD and JET_FUEL_USD both return "gallon".)
+GALLON_BASED_UNITS: frozenset[str] = frozenset({"gallon", "usd/gallon", "$/gal", "gal"})
 
 REFINED_PRODUCT_ORDER: list[str] = ["naphtha", "gasoil", "gasoline", "jet"]
 
@@ -221,7 +227,7 @@ def convert_product_price(
     original_price: float | None,
     barrels_per_mt: float | None,
 ) -> float | None:
-    """Converts price from USD/mt to USD/bbl: original_price / barrels_per_mt."""
+    """Converts price from USD/mt or USD/tonne to USD/bbl: original_price / barrels_per_mt."""
     if original_price is None or barrels_per_mt is None:
         return None
     if not (math.isfinite(original_price) and math.isfinite(barrels_per_mt)):
@@ -229,6 +235,29 @@ def convert_product_price(
     if barrels_per_mt <= 0:
         return None
     return original_price / barrels_per_mt
+
+
+def convert_gallon_to_bbl(
+    price_per_gallon: float | None,
+) -> float | None:
+    """Converts price from USD/gallon to USD/bbl by multiplying by 42.
+
+    Used for gasoline (GASOLINE_USD) and jet (JET_FUEL_USD) which OilPriceAPI
+    returns in gallon units, not metric-ton units.
+    42 US gallons = 1 barrel (exact, industry standard).
+    """
+    if price_per_gallon is None:
+        return None
+    if not math.isfinite(price_per_gallon):
+        return None
+    return price_per_gallon * 42.0
+
+
+def is_gallon_unit(unit: str | None) -> bool:
+    """Returns True if the unit string indicates a gallon-based price."""
+    if not unit:
+        return False
+    return unit.strip().lower() in GALLON_BASED_UNITS
 
 
 def calculate_product_spread(
@@ -246,7 +275,15 @@ def calculate_product_spread(
 def calculate_all_product_spreads(
     latest_by_instrument: dict[str, dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """Calculates product spreads for standard refined products in canonical order."""
+    """Calculates product spreads for standard refined products in canonical order.
+
+    Unit routing (critical — do not merge):
+      USD/mt or USD/tonne  → convert_product_price(price, bbl_per_mt)
+      USD/gallon           → convert_gallon_to_bbl(price)   [× 42]
+
+    Gallon-based instruments (GASOLINE_USD, JET_FUEL_USD) must never have the
+    MT factor applied to them, and vice versa.
+    """
     brent_obs = latest_by_instrument.get("brent")
     brent_price = to_float(brent_obs.get("value") if brent_obs else None)
 
@@ -257,11 +294,22 @@ def calculate_all_product_spreads(
             continue
 
         orig_price = to_float(obs.get("value"))
-        conversion_factor = (
-            to_float(obs.get("barrels_per_mt") or obs.get("barrelsPerMT"))
-            or PRODUCT_CONVERSIONS.get(instrument_id)
-        )
-        converted_price = convert_product_price(orig_price, conversion_factor)
+        obs_unit: str = obs.get("unit") or "USD/mt"
+
+        if is_gallon_unit(obs_unit):
+            # USD/gallon path: multiply by 42 to get USD/bbl
+            converted_price = convert_gallon_to_bbl(orig_price)
+            conversion_factor = None  # not applicable
+            conversion_method = "gallon_to_bbl"
+        else:
+            # USD/mt or USD/tonne path: divide by barrels-per-mt factor
+            conversion_factor = (
+                to_float(obs.get("barrels_per_mt") or obs.get("barrelsPerMT"))
+                or PRODUCT_CONVERSIONS.get(instrument_id)
+            )
+            converted_price = convert_product_price(orig_price, conversion_factor)
+            conversion_method = "mt_to_bbl"
+
         spread = calculate_product_spread(converted_price, brent_price)
 
         spreads.append({
@@ -269,12 +317,13 @@ def calculate_all_product_spreads(
             "display_name": obs.get("display_name") or obs.get("name") or instrument_id.title(),
             "date": str(obs.get("assessment_date") or obs.get("date")),
             "original_price": orig_price,
-            "original_unit": obs.get("unit", "USD/mt"),
+            "original_unit": obs_unit,
             "barrels_per_mt": conversion_factor,
             "converted_price": converted_price,
             "brent_price": brent_price,
             "spread": spread,
             "is_comparable": converted_price is not None and brent_price is not None,
+            "conversion_method": conversion_method,
         })
 
     return spreads

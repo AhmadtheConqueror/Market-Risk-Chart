@@ -53,6 +53,17 @@ Source failures are surfaced individually. In the current controlled probe,
 the OPEC page returned HTTP 403 to the backend client while EIA, NUPRC and NNPC
 loaded successfully; the service does not fall back to non-whitelisted sources.
 
+## Forward Calendar Automation & Scheduled Ingestion
+
+Forward Calendar events are stored authoritatively in Supabase PostgreSQL (`calendar_events`).
+Eight official provider families are ingested: Fed FOMC, BLS CPI & Jobs, BEA GDP, EIA WPSR & STEO,
+CBN MPC, NBS CPI & GDP, OPEC+ Meetings & MOMR, and US/Nigeria holiday schedules.
+
+- Standalone refresh command: `python scripts/refresh_calendar.py`
+- Production schedule: `0 5 * * *` (05:00 UTC = 06:00 West Africa Time / WAT)
+- Deployment configuration: Render Cron Job in `render.yaml`
+- Full operations guide: See `CALENDAR_AUTOMATION_OPS.md`
+
 ---
 
 ## Architecture Overview

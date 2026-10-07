@@ -109,3 +109,55 @@ def test_ai_chat_unconfigured(client: TestClient):
     assert data["status"] == "unconfigured"
     assert data["configured"] is False
     assert data["reply"] is None
+
+
+def test_risk_register_get_and_put_persistence(client: TestClient):
+    # 1. GET risk register
+    res = client.get("/api/dashboard/risk-register")
+    assert res.status_code == 200
+    rows = res.json()
+    assert isinstance(rows, list)
+    assert len(rows) >= 1
+
+    # 2. PUT updated risk register
+    new_rows = [
+        {
+            "risk_category": "Updated FX Risk",
+            "materiality": "Major",
+            "trend": "increasing",
+            "risk_owner": "Treasurer",
+            "display_order": 1,
+            "active": True,
+        },
+        {
+            "risk_category": "Updated Credit Risk",
+            "materiality": "Moderate",
+            "trend": "decreasing",
+            "risk_owner": "Risk Lead",
+            "display_order": 2,
+            "active": True,
+        },
+    ]
+    put_res = client.put("/api/dashboard/risk-register", json=new_rows)
+    assert put_res.status_code == 200
+    updated = put_res.json()
+    assert len(updated) == 2
+    assert updated[0]["risk_category"] == "Updated FX Risk"
+    assert updated[0]["materiality"] == "Major"
+    assert updated[0]["trend"] == "increasing"
+    assert updated[0]["risk_owner"] == "Treasurer"
+
+    # 3. GET /api/risk-register alias returns same updated rows
+    alias_res = client.get("/api/risk-register")
+    assert alias_res.status_code == 200
+    alias_data = alias_res.json()
+    assert len(alias_data) == 2
+    assert alias_data[0]["risk_category"] == "Updated FX Risk"
+
+    # 4. Verify snapshot also reflects updated risk register
+    snap_res = client.get("/api/dashboard/snapshot")
+    assert snap_res.status_code == 200
+    snap_data = snap_res.json()
+    assert len(snap_data["risk_register"]) == 2
+    assert snap_data["risk_register"][0]["risk_category"] == "Updated FX Risk"
+

@@ -23,7 +23,7 @@ from app.models.risk import DashboardContent, RiskRegisterEntry
 CANONICAL_INSTRUMENTS = [
     {
         "instrument_key": "brent",
-        "display_name": "Dated Brent",
+        "display_name": "ICE Brent Crude Futures",
         "unit": "USD/bbl",
         "category": "crude",
         "provider": "oilpriceapi",
@@ -31,7 +31,7 @@ CANONICAL_INSTRUMENTS = [
     },
     {
         "instrument_key": "wti",
-        "display_name": "WTI",
+        "display_name": "WTI Crude Oil Futures",
         "unit": "USD/bbl",
         "category": "crude",
         "provider": "oilpriceapi",
@@ -39,43 +39,47 @@ CANONICAL_INSTRUMENTS = [
     },
     {
         "instrument_key": "forcados",
-        "display_name": "Forcados",
+        "display_name": "Forcados FOB Nigeria",
         "unit": "USD/bbl",
         "category": "crude",
         "provider": "internal_excel",
         "provider_symbol": "PCABC00",
     },
+    # Refined products — switched to OilPriceAPI proxy series (2026-09-30).
+    # Discovery confirmed codes and units:
+    #   NAPHTHA_USD  → metric_ton  |  GASOIL_USD → tonne
+    #   GASOLINE_USD → gallon      |  JET_FUEL_USD → gallon
     {
         "instrument_key": "naphtha",
-        "display_name": "Naphtha Cargoes CIF NWE",
+        "display_name": "Naphtha — API market proxy",
         "unit": "USD/mt",
         "category": "refined",
-        "provider": "internal_excel",
-        "provider_symbol": "PAAAM00",
+        "provider": "oilpriceapi",
+        "provider_symbol": "NAPHTHA_USD",
     },
     {
         "instrument_key": "gasoil",
-        "display_name": "Gasoil 0.1% Cargoes CIF NWE",
+        "display_name": "ICE Low Sulphur Gasoil — API proxy",
         "unit": "USD/mt",
         "category": "refined",
-        "provider": "internal_excel",
-        "provider_symbol": "AAVJI00",
+        "provider": "oilpriceapi",
+        "provider_symbol": "GASOIL_USD",
     },
     {
         "instrument_key": "gasoline",
-        "display_name": "Eurobob Non-Oxy Barges FOB Rdam",
-        "unit": "USD/mt",
+        "display_name": "RBOB Gasoline — API proxy",
+        "unit": "USD/gal",
         "category": "refined",
-        "provider": "internal_excel",
-        "provider_symbol": "PGABM00",
+        "provider": "oilpriceapi",
+        "provider_symbol": "GASOLINE_USD",
     },
     {
         "instrument_key": "jet",
-        "display_name": "Jet Aviation Fuel Cargoes CIF NWE",
-        "unit": "USD/mt",
+        "display_name": "Jet Fuel — API proxy",
+        "unit": "USD/gal",
         "category": "refined",
-        "provider": "internal_excel",
-        "provider_symbol": "PJAAV00",
+        "provider": "oilpriceapi",
+        "provider_symbol": "JET_FUEL_USD",
     },
 ]
 

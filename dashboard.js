@@ -151,8 +151,108 @@
       note: "Crude only, excluding condensate"
     }
   ];
+  MACRO_INDICATOR_DEFINITIONS.forEach((definition) => { definition.geography = "nigeria"; });
+  MACRO_INDICATOR_DEFINITIONS.push(...[
+  {
+    "key": "usa_headline_inflation",
+    "title": "Headline Inflation",
+    "unit": "%",
+    "source": "U.S. Bureau of Labor Statistics",
+    "geography": "usa",
+    "note": ""
+  },
+  {
+    "key": "usa_core_inflation",
+    "title": "Core Inflation",
+    "unit": "%",
+    "source": "U.S. Bureau of Labor Statistics",
+    "geography": "usa",
+    "note": ""
+  },
+  {
+    "key": "usa_real_gdp_growth",
+    "title": "Real GDP Growth",
+    "unit": "%",
+    "source": "U.S. Bureau of Economic Analysis",
+    "geography": "usa",
+    "note": "QoQ, seasonally adjusted annual rate"
+  },
+  {
+    "key": "usa_policy_rate",
+    "title": "Effective Federal Funds Rate",
+    "unit": "%",
+    "source": "Federal Reserve / FRED",
+    "geography": "usa",
+    "note": ""
+  },
+  {
+    "key": "usa_unemployment_rate",
+    "title": "Unemployment Rate",
+    "unit": "%",
+    "source": "U.S. Bureau of Labor Statistics",
+    "geography": "usa",
+    "note": ""
+  },
+  {
+    "key": "usa_crude_inventories",
+    "title": "Commercial Crude Inventories",
+    "unit": "million barrels",
+    "source": "U.S. Energy Information Administration",
+    "geography": "usa",
+    "note": "Excluding SPR"
+  },
+  {
+    "key": "global_real_gdp_growth",
+    "title": "World Real GDP Growth",
+    "unit": "%",
+    "source": "IMF World Economic Outlook",
+    "geography": "global",
+    "note": ""
+  },
+  {
+    "key": "global_inflation",
+    "title": "World Inflation",
+    "unit": "%",
+    "source": "IMF World Economic Outlook",
+    "geography": "global",
+    "note": ""
+  },
+  {
+    "key": "china_manufacturing_pmi",
+    "title": "China Manufacturing PMI",
+    "unit": "index",
+    "source": "National Bureau of Statistics of China",
+    "geography": "global",
+    "note": ""
+  },
+  {
+    "key": "global_oil_demand_growth",
+    "title": "Global Oil Demand Growth",
+    "unit": "mbpd",
+    "source": "U.S. Energy Information Administration",
+    "geography": "global",
+    "note": "Annual consumption change, million barrels/day"
+  },
+  {
+    "key": "global_energy_price_index",
+    "title": "Energy Price Index",
+    "unit": "index",
+    "source": "World Bank Commodity Price Data / Pink Sheet",
+    "geography": "global",
+    "note": "2010=100"
+  },
+  {
+    "key": "broad_usd_index",
+    "title": "Broad U.S. Dollar Index",
+    "unit": "index",
+    "source": "Federal Reserve / FRED",
+    "geography": "global",
+    "note": "January 2006=100"
+  }
+]);
+  let macroGeography = "nigeria";
   const DEFAULT_MACRO_SUMMARY = {
-    metrics: MACRO_INDICATOR_DEFINITIONS.map((indicator) => ({
+    metrics: MACRO_INDICATOR_DEFINITIONS.filter((indicator) => indicator.geography === "nigeria").map((indicator) => ({
       key: indicator.key,
       title: indicator.title,
       period: "Unavailable",
@@ -262,10 +362,7 @@
     { jurisdiction: "Middle East / Global Supply Routes", rating: "Moderate", currentDevelopment: "", implication: "" },
     { jurisdiction: "International", rating: "Moderate", currentDevelopment: "", implication: "" }
   ];
-  const DEFAULT_FORWARD_CALENDAR = {
-    marketEvents: [],
-    businessEvents: []
-  };
+  // The calendar service preserves legacy grouped events without rewriting storage on load.
 
   let activeDashboardData = null;
   let enrichedDashboardData = null;
@@ -280,16 +377,23 @@
   let newsItems = [];
   let newsLoaded = false;
   let newsLoading = false;
+  // "idle" | "loading" | "success" | "partial" | "failed"
+  let newsRefreshStatus = "idle";
+  let newsRefreshMessage = "";
+  let newsLastRefreshed = null;
   let selectedWorkbookFile = null;
   let riskAdvisorItems = [];
   let traderDeskItems = [];
   let inferenceChain = null;
   let geopoliticalCards = [];
   let forwardCalendar = null;
+  let calendarMonth = global.OilRiskCalendarService.today().slice(0, 7);
+  let calendarFilter = "all";
   let managementActions = null;
   let categoryRiskOverrides = {};
   let latestAIAnalysis = null;
   let aiAnalysisEnvelope = null;
+  let savedAIAnalysisResponse = null;
   let openCategoryRiskId = "";
   const editModes = {
     briefing: false,
@@ -331,6 +435,7 @@
       }
     }
     riskRegisterRows = loadRiskRegisterRows();
+    saveJson(STORAGE_KEYS.riskRegister, riskRegisterRows);
     macroSummary = loadMacroSummary(activeDashboardData);
     briefingItems = loadBriefingItems();
     riskAdvisorItems = loadRiskAdvisorItems();
@@ -349,6 +454,7 @@
     renderDashboard(activeDashboardData);
     updateAdminUi();
     loadLatestAIAnalysis();
+    initCalendarBackendSync();
   }
 
   function bindControls() {
@@ -382,6 +488,11 @@
 
     if (aiRefreshButton) {
       aiRefreshButton.addEventListener("click", handleAIRefresh);
+    }
+
+    const advisorAIRefreshBtn = document.getElementById("advisorAIRefreshBtn");
+    if (advisorAIRefreshBtn) {
+      advisorAIRefreshBtn.addEventListener("click", handleAIRefresh);
     }
 
     if (adminButton) {
@@ -424,6 +535,16 @@
 
     document.addEventListener("click", handleDocumentClick);
     document.addEventListener("change", handleDocumentChange);
+    document.addEventListener("keydown", (event) => {
+      const tab = event.target.closest?.('[data-action="macro-tab"]');
+      if (!tab || editModes.macro || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+      event.preventDefault();
+      const regions = ["nigeria", "usa", "global"];
+      const index = regions.indexOf(tab.dataset.geography);
+      macroGeography = regions[event.key === "Home" ? 0 : event.key === "End" ? 2 : (index + (event.key === "ArrowRight" ? 1 : 2)) % 3];
+      renderMacroSummary();
+      document.getElementById(`macroTab-${macroGeography}`)?.focus();
+    });
   }
 
   async function handleMarketRefresh() {
@@ -481,6 +602,34 @@
       return;
     }
 
+    if (action === "macro-tab") {
+      if (!editModes.macro && ["nigeria", "usa", "global"].includes(button.dataset.geography)) {
+        macroGeography = button.dataset.geography;
+        renderMacroSummary();
+        document.getElementById(`macroTab-${macroGeography}`)?.focus?.();
+      }
+      return;
+    }
+
+    if (action === "calendar-month" || action === "calendar-current" || action === "calendar-filter") {
+      if (action === "calendar-filter") {
+        calendarFilter = Object.hasOwn(global.OilRiskCalendarService.FILTERS, button.dataset.filter) ? button.dataset.filter : "all";
+      } else {
+        calendarMonth = action === "calendar-current" ? global.OilRiskCalendarService.today().slice(0, 7)
+          : global.OilRiskCalendarService.shiftMonth(calendarMonth, Number(button.dataset.offset));
+      }
+      renderForwardCalendar();
+      const selector = action === "calendar-filter" ? `[data-action="calendar-filter"][data-filter="${calendarFilter}"]` : `[data-action="${action}"]${button.dataset.offset ? `[data-offset="${button.dataset.offset}"]` : ""}`;
+      document.querySelector(selector)?.focus();
+      return;
+    }
+
+    // News refresh is available to all users in API mode (not admin-only).
+    if (action === "refresh-news") {
+      handleNewsRefresh();
+      return;
+    }
+
     if (!isAdmin()) {
       return;
     }
@@ -500,15 +649,16 @@
       return;
     }
 
-    if (action === "refresh-news") {
-      handleNewsRefresh();
-      return;
-    }
-
     handleEditAction(action, button);
   }
 
   function handleDocumentChange(event) {
+    if (event.target.id === "calendarMonth") {
+      if (global.OilRiskCalendarService.dateOnly(`${event.target.value}-01`)) calendarMonth = event.target.value;
+      renderForwardCalendar();
+      document.getElementById("calendarMonth")?.focus();
+      return;
+    }
     const select = event.target.closest("[data-category-risk-select]");
 
     if (!select || !isAdmin()) {
@@ -624,17 +774,16 @@
 
     if (action === "add-calendar-row") {
       forwardCalendar = readCalendarDraft();
-      const group = button.dataset.group === "businessEvents" ? "businessEvents" : "marketEvents";
-      forwardCalendar[group].push({ date: "", title: "", note: "" });
-      renderDashboard(activeDashboardData);
+      forwardCalendar.events.push({ id: uniqueId("calendar"), event_date: "", title: "", category: "macro", region: "Global", impact_level: null, description: "", source_type: "manual", active: true });
+      renderForwardCalendar();
+      document.querySelector("[data-calendar-index]:last-child input[data-field='date']")?.focus();
       return;
     }
 
     if (action === "delete-calendar-row") {
       forwardCalendar = readCalendarDraft();
-      const group = button.dataset.group === "businessEvents" ? "businessEvents" : "marketEvents";
-      forwardCalendar[group].splice(Number(button.dataset.index), 1);
-      renderDashboard(activeDashboardData);
+      forwardCalendar.events.splice(Number(button.dataset.index), 1);
+      renderForwardCalendar();
       return;
     }
 
@@ -675,22 +824,77 @@
     }
   }
 
+  // Re-renders only the news actions bar and news content — no full dashboard repaint.
+  function _repaintNewsSection() {
+    renderVerifiedNewsActions();
+    const container = document.getElementById("dailyBriefingContent");
+    if (container && apiModeEnabled()) {
+      container.innerHTML = renderVerifiedNews();
+      decorateVerifiedNewsMetadata();
+    }
+  }
+
   async function handleNewsRefresh() {
-    if (!isAdmin() || newsLoading) {
+    // Prevent duplicate concurrent refreshes; admin gate removed — refresh is public in API mode.
+    if (newsLoading) {
       return;
     }
 
     newsLoading = true;
-    renderDashboard(activeDashboardData);
+    newsRefreshStatus = "loading";
+    newsRefreshMessage = "";
+    _repaintNewsSection();
+
     try {
       const summary = await global.OilRiskNewsService.refreshNews();
-      await loadLatestNews();
-      setDataMessage(`News refreshed: ${summary.stored || 0} new, ${summary.updated || 0} updated, ${summary.failed || 0} failed source/item checks.`);
-      renderDashboard(activeDashboardData);
-    } catch (error) {
+
+      // Fetch the fresh articles regardless of partial source failures.
+      const previousItems = newsItems.slice();
+      try {
+        await loadLatestNews();
+      } catch (_) {
+        newsItems = previousItems; // keep whatever was there if GET also fails
+      }
+
+      newsLastRefreshed = new Date();
+
+      const totalSources = summary.sources_requested || 0;
+      const succeededSources = summary.sources_succeeded || 0;
+      const failedSources = totalSources - succeededSources;
+
+      if (failedSources > 0 && succeededSources > 0) {
+        // Partial success — some sources delivered, some did not.
+        newsRefreshStatus = "partial";
+        newsRefreshMessage = `News updated · ${succeededSources} of ${totalSources} sources available`;
+      } else if (failedSources > 0 && succeededSources === 0) {
+        // All sources failed but the POST itself completed — unusual state.
+        newsRefreshStatus = "failed";
+        newsRefreshMessage = "News refresh failed — no sources responded";
+      } else {
+        newsRefreshStatus = "success";
+        newsRefreshMessage = "News updated";
+      }
+
       newsLoading = false;
-      setDataMessage(error.message || "Unable to refresh verified news.", true);
-      renderDashboard(activeDashboardData);
+      _repaintNewsSection();
+
+      // Auto-clear the success/partial status after 6 seconds.
+      if (newsRefreshStatus !== "failed") {
+        const capturedMsg = newsRefreshMessage;
+        setTimeout(() => {
+          if (newsRefreshMessage === capturedMsg) {
+            newsRefreshStatus = "idle";
+            newsRefreshMessage = "";
+            _repaintNewsSection();
+          }
+        }, 6000);
+      }
+    } catch (_error) {
+      // Preserve whatever stories were already visible.
+      newsLoading = false;
+      newsRefreshStatus = "failed";
+      newsRefreshMessage = "News refresh failed";
+      _repaintNewsSection();
     }
   }
 
@@ -986,6 +1190,248 @@
     `).join("");
   }
 
+  function getInstrumentTypeLabel(stat) {
+    if (stat.key === "forcados") {
+      return "Physical assessment";
+    }
+    const isProxy = (stat.benchmarkStatus === "test_proxy" || stat.benchmarkStatus === "proxy");
+    if (isProxy) {
+      return "Refined product proxy";
+    }
+    if (stat.key === "brent" || stat.key === "wti") {
+      return "Benchmark";
+    }
+    if (stat.benchmarkStatus === "confirmed") {
+      return "Benchmark";
+    }
+    return "Market indicator";
+  }
+
+  function formatCardNativeUnitSuffix(unitStr) {
+    if (!unitStr) return "";
+    const u = String(unitStr).trim().toLowerCase();
+    if (u.includes("bbl") || u.includes("barrel")) return " /bbl";
+    if (u.includes("mt") || u.includes("metric_ton") || u.includes("tonne")) return " /mt";
+    if (u.includes("gal") || u.includes("gallon")) return " /gal";
+    if (u.startsWith("usd/")) return " /" + u.slice(4);
+    return ` /${u}`;
+  }
+
+  function formatCardPrice(stat) {
+    if (stat.isUnavailable || stat.latestValue === null || !Number.isFinite(Number(stat.latestValue))) {
+      return '<span class="product-price price-missing">—</span>';
+    }
+    const num = Number(stat.latestValue);
+    const decimals = Number.isFinite(stat.decimals) ? stat.decimals : 2;
+    const formattedNum = num.toLocaleString("en-US", {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals
+    });
+    const currencyPrefix = (stat.currency === "USD" || !stat.currency) ? "$" : `${stat.currency} `;
+    const unitSuffix = formatCardNativeUnitSuffix(stat.unit);
+
+    return `
+      <span class="product-price">
+        <span class="price-val">${currencyPrefix}${formattedNum}</span><span class="price-unit">${escapeHtml(unitSuffix)}</span>
+      </span>
+    `;
+  }
+
+  function formatCardMovement(stat) {
+    if (stat.isUnavailable || stat.change === null || !Number.isFinite(Number(stat.change))) {
+      return `
+        <div class="product-movement">
+          <span class="product-change change-flat">—</span>
+        </div>
+      `;
+    }
+
+    const change = Number(stat.change);
+    const pct = Number.isFinite(Number(stat.percentChange)) ? Number(stat.percentChange) : null;
+    const decimals = Number.isFinite(stat.decimals) ? stat.decimals : 2;
+
+    let arrow = "→";
+    let changeClass = "change-flat";
+    let sign = "";
+
+    if (change > 0) {
+      arrow = "▲";
+      changeClass = "change-up";
+      sign = "+";
+    } else if (change < 0) {
+      arrow = "▼";
+      changeClass = "change-down";
+      sign = "-";
+    }
+
+    const absChange = Math.abs(change).toLocaleString("en-US", {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals
+    });
+
+    const pctFormatted = pct !== null
+      ? `${sign}${Math.abs(pct).toFixed(2)}%`
+      : "";
+
+    return `
+      <div class="product-movement">
+        <span class="product-change ${changeClass}">
+          <span class="movement-arrow">${arrow}</span>
+          <span class="movement-abs">${absChange}</span>
+          ${pctFormatted ? `<span class="movement-pct">${pctFormatted}</span>` : ""}
+        </span>
+      </div>
+    `;
+  }
+
+  function formatCardContext(stat) {
+    if (stat.isUnavailable) {
+      return escapeHtml(stat.unavailableReason || "No approved automated source configured");
+    }
+
+    if (stat.change === null || !Number.isFinite(Number(stat.change))) {
+      return "Baseline observation established";
+    }
+
+    const pct = Number.isFinite(Number(stat.percentChange))
+      ? Number(stat.percentChange)
+      : (stat.previousValue ? ((stat.change / stat.previousValue) * 100) : 0);
+
+    if (Math.abs(pct) < 0.05) {
+      return "Unchanged from previous observation";
+    }
+    if (pct <= -2.0) {
+      return "Sharply below previous observation";
+    }
+    if (pct <= -0.8) {
+      return "Below previous observation";
+    }
+    if (pct < 0) {
+      return "Slightly below previous observation";
+    }
+    if (pct >= 2.0) {
+      return "Sharply above previous observation";
+    }
+    if (pct >= 0.8) {
+      return "Above previous observation";
+    }
+    return "Slightly above previous observation";
+  }
+
+  function renderCardPosition(stat) {
+    if (stat.isUnavailable) {
+      return `
+        <div class="product-position position-insufficient">
+          <div class="position-head">
+            <span class="position-title">90D POSITION</span>
+            <span class="position-band band-insufficient">Unavailable</span>
+          </div>
+          <div class="position-axis" aria-hidden="true">
+            <div class="axis-labels">
+              <span>-3</span>
+              <span>-2</span>
+              <span class="center-label">0</span>
+              <span>+2</span>
+              <span>+3</span>
+            </div>
+            <div class="axis-track axis-track-muted">
+              <div class="axis-line"></div>
+              <div class="axis-tick tick-neg2"></div>
+              <div class="axis-tick tick-center"></div>
+              <div class="axis-tick tick-pos2"></div>
+            </div>
+          </div>
+          <div class="position-footer">
+            <span class="position-z z-insufficient">Z-score <strong>Unavailable</strong></span>
+            <span class="position-meta">0 / 60 valid observations</span>
+          </div>
+        </div>
+      `;
+    }
+
+    if (stat.historyStatus === "insufficient_history" || !Number.isFinite(stat.zScore)) {
+      const obsCount = Number.isFinite(stat.windowObservationCount) ? stat.windowObservationCount : 0;
+      return `
+        <div class="product-position position-insufficient">
+          <div class="position-head">
+            <span class="position-title">90D POSITION</span>
+            <span class="position-band band-insufficient">INSUFFICIENT 90D HISTORY</span>
+          </div>
+          <div class="position-axis" aria-hidden="true">
+            <div class="axis-labels">
+              <span>-3</span>
+              <span>-2</span>
+              <span class="center-label">0</span>
+              <span>+2</span>
+              <span>+3</span>
+            </div>
+            <div class="axis-track axis-track-muted">
+              <div class="axis-line"></div>
+              <div class="axis-tick tick-neg2"></div>
+              <div class="axis-tick tick-center"></div>
+              <div class="axis-tick tick-pos2"></div>
+            </div>
+          </div>
+          <div class="position-footer">
+            <span class="position-z z-insufficient">Z-score <strong>INSUFFICIENT 90D HISTORY</strong></span>
+            <span class="position-meta">${obsCount} / 60 valid observations</span>
+          </div>
+        </div>
+      `;
+    }
+
+    const zScore = stat.zScore;
+    const clampedZ = Math.max(-3, Math.min(3, zScore));
+    const markerLeft = ((clampedZ + 3) / 6) * 100;
+    const absZ = Math.abs(zScore);
+
+    let bandLabel = "Normal";
+    let bandClass = "normal";
+    if (absZ >= 2) {
+      bandLabel = "Alert";
+      bandClass = "alert";
+    } else if (absZ >= 1) {
+      bandLabel = "Watch";
+      bandClass = "watch";
+    }
+
+    const zText = `${zScore >= 0 ? "+" : ""}${zScore.toFixed(2)}`;
+    const meanText = Number.isFinite(stat.mean90) ? formatPlainNumber(stat.mean90, stat.decimals) : null;
+    const obsCount = Number.isFinite(stat.windowObservationCount) ? stat.windowObservationCount : 0;
+
+    return `
+      <div class="product-position">
+        <div class="position-head">
+          <span class="position-title">90D POSITION</span>
+          <span class="position-band band-${bandClass}">${bandLabel}</span>
+        </div>
+        <div class="position-axis" aria-hidden="true">
+          <div class="axis-labels">
+            <span>-3</span>
+            <span>-2</span>
+            <span class="center-label">0</span>
+            <span>+2</span>
+            <span>+3</span>
+          </div>
+          <div class="axis-track">
+            <div class="axis-line"></div>
+            <div class="axis-zone zone-normal"></div>
+            <div class="axis-tick tick-neg2"></div>
+            <div class="axis-tick tick-center"></div>
+            <div class="axis-tick tick-pos2"></div>
+            <div class="axis-marker marker-${bandClass}" style="left:${markerLeft.toFixed(2)}%;">
+              <span class="axis-dot"></span>
+            </div>
+          </div>
+        </div>
+        <div class="position-footer">
+          <span class="position-z">z-score <strong>${escapeHtml(zText)}</strong></span>
+          <span class="position-meta">${obsCount} obs${meanText ? ` · μ ${escapeHtml(meanText)}` : ""}</span>
+        </div>
+      </div>
+    `;
+  }
+
   function renderMarketProductCards(stats) {
     const container = document.getElementById("marketProductGrid");
     const note = document.getElementById("marketWindowNote");
@@ -1004,47 +1450,25 @@
     }
 
     container.innerHTML = stats.map((stat) => {
-      if (stat.isUnavailable) {
-        return `
-          <article class="product-card is-unavailable status-unavailable" data-instrument="${escapeHtml(stat.key)}">
-            <div class="product-top">
-              <div>
-                <h3 class="product-name">${escapeHtml(stat.name)}</h3>
-                <span class="product-unit">${escapeHtml(stat.unit || "")}</span>
-              </div>
-              <span class="status-pill status-pill-unavailable">Unavailable</span>
-            </div>
-            <div class="product-price-row">
-              <span class="product-price price-unavailable">Price unavailable</span>
-              <span class="product-change change-flat">—</span>
-            </div>
-            <div class="product-unavailable-notice">
-              ${escapeHtml(stat.unavailableReason || "No approved automated source configured")}
-            </div>
-            <div class="product-source-line">
-              ${escapeHtml(stat.sourceLineText || "Automated source not configured")}
-            </div>
-          </article>
-        `;
-      }
-
       const statusClass = (stat.status || "low").toLowerCase();
-      const statusPillClass = stat.freshnessStatus === "stale"
-        ? "status-pill-stale"
-        : stat.benchmarkStatus === "test_proxy"
-          ? "status-pill-proxy"
-          : `status-${statusClass}`;
-      const statusPillText = stat.freshnessStatus === "stale"
-        ? "Stale"
-        : stat.benchmarkStatus === "test_proxy"
-          ? "Proxy"
-          : stat.status;
+      const isProxy = (stat.benchmarkStatus === "test_proxy" || stat.benchmarkStatus === "proxy");
+      const freshnessLabel = stat.isUnavailable
+        ? "Unavailable"
+        : (stat.freshnessStatus === "stale" ? "Stale" : "Fresh");
+      const freshnessPillClass = stat.isUnavailable
+        ? "status-pill-unavailable"
+        : (stat.freshnessStatus === "stale" ? "status-pill-stale" : "status-pill-fresh");
+
+      const cardStateClass = stat.isUnavailable ? "is-unavailable status-unavailable" : `status-${statusClass}`;
+      const instrumentType = getInstrumentTypeLabel(stat);
+      const unitLabel = stat.unit || "USD/bbl";
+      const subtitleText = `${instrumentType} · ${unitLabel}`;
 
       const trendHistory = stat.history
         ? global.OilRiskMarketCalculations.trendWindow(stat.history, 30)
         : [];
       let sparkHtml = "";
-      if (trendHistory.length >= 2) {
+      if (!stat.isUnavailable && trendHistory.length >= 2) {
         sparkHtml = global.OilRiskCharts.createSparkline(stat.history, stat.tone, {
           days: 30,
           interactiveTooltip: true,
@@ -1056,45 +1480,33 @@
         sparkHtml = `<div class="spark-insufficient"><span>30D Trend: Insufficient history</span></div>`;
       }
 
-      let zDisplayHtml = "";
-      if (stat.historyStatus === "insufficient_history" || !Number.isFinite(stat.zScore)) {
-        zDisplayHtml = `
-          <div class="product-z z-insufficient">
-            Z-score <strong>Insufficient 90D history</strong>
-            <span class="outlier-meta">${stat.windowObservationCount} valid observation${stat.windowObservationCount === 1 ? "" : "s"}</span>
-          </div>
-        `;
-      } else {
-        const zText = `${stat.zScore >= 0 ? "+" : ""}${stat.zScore.toFixed(2)} sigma`;
-        const meanText = formatPlainNumber(stat.mean90, stat.decimals);
-        zDisplayHtml = `
-          <div class="product-z">
-            Z-score <strong>${escapeHtml(zText)}</strong> vs mean ${escapeHtml(meanText)}
-            <span class="outlier-meta">${stat.windowObservationCount} valid observations</span>
-            ${renderZBar(stat)}
-          </div>
-        `;
-      }
-
       return `
-        <article class="product-card status-${statusClass}" data-instrument="${escapeHtml(stat.key)}">
+        <article class="product-card ${cardStateClass}" data-instrument="${escapeHtml(stat.key)}">
           <div class="product-top">
-            <div>
+            <div class="product-title-group">
               <h3 class="product-name">${escapeHtml(stat.name)}</h3>
-              <span class="product-unit">${escapeHtml(stat.unit || "")}</span>
+              <span class="product-unit">${escapeHtml(subtitleText)}</span>
             </div>
-            <span class="status-pill ${statusPillClass}">${escapeHtml(statusPillText)}</span>
+            <div class="product-pills">
+              <span class="status-pill ${freshnessPillClass}">${escapeHtml(freshnessLabel)}</span>
+              ${isProxy ? `<span class="status-pill status-pill-proxy">Proxy</span>` : ""}
+            </div>
           </div>
-          <div class="product-price-row">
-            <span class="product-price">${escapeHtml(stat.latestText)}</span>
-            <span class="product-change ${escapeHtml(stat.changeClass)}">${escapeHtml(stat.changeText)}</span>
+          <div class="product-hero">
+            <div class="product-price-row">
+              ${formatCardPrice(stat)}
+            </div>
+            ${formatCardMovement(stat)}
+            <div class="product-context">
+              ${formatCardContext(stat)}
+            </div>
           </div>
           <div class="product-spark">
             ${sparkHtml}
           </div>
-          ${zDisplayHtml}
+          ${renderCardPosition(stat)}
           <div class="product-source-line">
-            ${escapeHtml(stat.sourceLineText || "")}
+            ${escapeHtml(stat.sourceLineText || "Automated source not configured")}
           </div>
         </article>
       `;
@@ -1180,11 +1592,11 @@
           displayName = configInst.providerDisplayName;
         } else if (configInst.displayName) {
           displayName = configInst.displayName;
+        } else {
+          if (product.key === "forcados") displayName = "Forcados";
+          if (product.key === "gasoline") displayName = "Gasoline";
+          if (product.key === "jet") displayName = "Jet";
         }
-
-        if (product.key === "forcados") displayName = "Forcados";
-        if (product.key === "gasoline") displayName = "Gasoline";
-        if (product.key === "jet") displayName = "Jet";
 
         const providerSymbol = (backendStat && backendStat.provider_symbol) || configInst.providerSymbol || null;
         const benchmarkStatus = (backendStat && backendStat.benchmark_status) || configInst.benchmarkStatus || (isUnavailable ? "unavailable" : "confirmed");
@@ -1198,6 +1610,8 @@
           const sourceLabel = providerName === "internal_excel" ? "Internal market workbook" : providerName;
           if (benchmarkStatus === "test_proxy") {
             sourceLineText = `Source: ${sourceLabel} · ${providerSymbol} · Test proxy`;
+          } else if (benchmarkStatus === "proxy") {
+            sourceLineText = `Source: ${sourceLabel} · ${providerSymbol} · Proxy`;
           } else {
             sourceLineText = `Source: ${sourceLabel} · ${providerSymbol}`;
           }
@@ -1259,8 +1673,8 @@
         let status = "Active";
         if (freshnessStatus === "stale") {
           status = "Stale";
-        } else if (benchmarkStatus === "test_proxy") {
-          status = "Proxy";
+        } else if (benchmarkStatus === "test_proxy" || benchmarkStatus === "proxy") {
+          status = Number.isFinite(zScore) ? riskStatusFromZ(zScore) : "Proxy";
         } else if (Number.isFinite(zScore)) {
           status = riskStatusFromZ(zScore);
         }
@@ -1413,11 +1827,36 @@
 
   function renderVerifiedNewsActions() {
     const container = document.getElementById("briefingActions");
-    if (!container || !isAdmin()) {
-      if (container) container.innerHTML = "";
+    if (!container) {
       return;
     }
-    container.innerHTML = `<button class="mini-button" type="button" data-action="refresh-news"${newsLoading ? " disabled" : ""}>${newsLoading ? "Refreshing..." : "Refresh News"}</button>`;
+
+    // Build status badge (success / partial / failed / idle)
+    let statusHtml = "";
+    if (newsRefreshStatus === "success" || newsRefreshStatus === "partial") {
+      statusHtml = `<span class="news-refresh-status news-refresh-ok" role="status">${escapeHtml(newsRefreshMessage)}</span>`;
+    } else if (newsRefreshStatus === "failed") {
+      statusHtml = `<span class="news-refresh-status news-refresh-err" role="alert">${escapeHtml(newsRefreshMessage)}</span>`;
+    }
+
+    // Build last-refreshed timestamp (cheap — only shown when we have it)
+    let timestampHtml = "";
+    if (newsLastRefreshed) {
+      timestampHtml = `<span class="news-last-refreshed">Last refresh: ${escapeHtml(formatDate(newsLastRefreshed.toISOString()))}</span>`;
+    }
+
+    // Button — disabled during loading, retry label after full failure.
+    const isLoading = Boolean(newsLoading);
+    const btnLabel = isLoading
+      ? `<span class="news-spinner" aria-hidden="true"></span>Refreshing News\u2026`
+      : (newsRefreshStatus === "failed" ? "Retry Refresh" : "Refresh News");
+    const btnClass = newsRefreshStatus === "failed" ? "mini-button mini-button-warn" : "mini-button";
+
+    container.innerHTML = [
+      timestampHtml,
+      statusHtml,
+      `<button id="newsRefreshBtn" class="${btnClass}" type="button" data-action="refresh-news"${isLoading ? " disabled aria-busy=\"true\"" : ""} aria-label="Refresh news from all sources">${btnLabel}</button>`
+    ].filter(Boolean).join("");
   }
 
   function renderVerifiedNews() {
@@ -1441,15 +1880,27 @@
             .sort((a, b) => Date.parse(b.published_at || "") - Date.parse(a.published_at || ""))
             .slice(0, 3);
           return `
-            <section class="briefing-region verified-news-region">
-              <h3>${label}</h3>
-              <ul class="briefing-list verified-news-list">
-                ${items.length ? items.map((item) => `
-                  <li>
-                    <a href="${escapeAttribute(item.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.title)}</a>
-                    <span class="news-meta">${escapeHtml(item.source_name)} · ${escapeHtml(formatDate(item.published_at))}${item.topic ? ` · ${escapeHtml(item.topic.replaceAll("_", " "))}` : ""}</span>
+            <section class="briefing-region verified-news-region news-region-card" data-region="${key}">
+              <div class="news-region-header">
+                <div class="news-region-title-group">
+                  <span class="news-region-badge region-${key}">${label}</span>
+                </div>
+                <span class="news-region-count">${items.length} ${items.length === 1 ? "story" : "stories"}</span>
+              </div>
+              <ul class="briefing-list verified-news-list news-items-list">
+                ${items.length ? items.map((item) => {
+                  const topicLabel = item.topic ? titleCase(item.topic.replaceAll("_", " ")) : "";
+                  return `
+                  <li class="news-item-card">
+                    <a class="news-headline" href="${escapeAttribute(item.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.title)}</a>
+                    <div class="news-meta">
+                      <span class="news-source">${escapeHtml(item.source_name)}</span>
+                      <span class="news-meta-sep" aria-hidden="true">·</span>
+                      <span class="news-date">${escapeHtml(formatDate(item.published_at))}</span>
+                    </div>
+                    ${topicLabel ? `<div class="news-tag-row"><span class="news-topic-tag tag-${escapeHtml(categoryClass(topicLabel))}">${escapeHtml(topicLabel)}</span></div>` : ""}
                   </li>
-                `).join("") : `<li class="empty-state">No recent verified stories</li>`}
+                `;}).join("") : `<li class="empty-state">No recent verified stories</li>`}
               </ul>
             </section>
           `;
@@ -1460,6 +1911,9 @@
 
   function decorateVerifiedNewsMetadata() {
     document.querySelectorAll(".verified-news-list .news-meta").forEach((meta) => {
+      if (meta.querySelector(".news-source")) {
+        return;
+      }
       const parts = meta.textContent.split(/\s+(?:Â·|·)\s+/).map((part) => part.trim()).filter(Boolean);
       const source = parts[0] || "Verified source";
       const date = parts[1] || "--";
@@ -1529,106 +1983,265 @@
 
   async function loadLatestAIAnalysis() {
     const result = await global.OilRiskAIService.getLatestDashboardAnalysis();
-    aiAnalysisEnvelope = result;
-    latestAIAnalysis = result && result.data && result.data.analysis ? result.data.analysis : null;
+    acceptAIAnalysisResult(result);
     renderAIAnalysis();
   }
 
   async function handleAIRefresh() {
     const button = document.getElementById("aiRefreshButton");
+    const advisorBtn = document.getElementById("advisorAIRefreshBtn");
     const status = document.getElementById("aiAnalysisStatus");
-    if (!button) {
+    if (!button && !advisorBtn) {
       return;
     }
 
-    button.disabled = true;
-    button.textContent = "Analysing...";
+    if (button) {
+      button.disabled = true;
+      button.textContent = "Analysing...";
+    }
+    if (advisorBtn) {
+      advisorBtn.disabled = true;
+      advisorBtn.textContent = "Refreshing AI...";
+    }
     if (status) {
       status.classList.remove("is-error");
       status.textContent = "Building a verified dashboard context and requesting analysis...";
     }
 
-    const result = await global.OilRiskAIService.generateDashboardAnalysis({ forceRefresh: true });
+    try {
+      const result = await global.OilRiskAIService.generateDashboardAnalysis({ forceRefresh: true });
+      acceptAIAnalysisResult(result);
+      renderAIAnalysis();
+    } finally {
+      if (button) {
+        button.disabled = false;
+        button.textContent = "Refresh AI Analysis";
+      }
+      if (advisorBtn) {
+        advisorBtn.disabled = false;
+        advisorBtn.textContent = "Refresh AI Analysis";
+      }
+    }
+  }
+
+  function acceptAIAnalysisResult(result) {
     aiAnalysisEnvelope = result;
-    latestAIAnalysis = result && result.data && result.data.analysis ? result.data.analysis : null;
-    renderAIAnalysis();
-    button.disabled = false;
-    button.textContent = "Refresh AI Analysis";
+    const response = result && (result.data || result);
+    if (response && response.status === "completed" && response.analysis) {
+      latestAIAnalysis = response.analysis;
+      savedAIAnalysisResponse = response;
+    }
+    // A failed refresh must not discard the latest saved interpretation.
+  }
+
+  function renderAINarrative(value) {
+    const text = String(value || "").trim();
+    if (!text) return "";
+    if (text.length <= 650) return `<p class="ai-narrative">${escapeHtml(text)}</p>`;
+    const boundary = text.lastIndexOf(" ", 650);
+    const split = boundary > 400 ? boundary : 650;
+    return `<p class="ai-narrative">${escapeHtml(text.slice(0, split))}</p>
+      <details class="ai-read-more"><summary>Read more</summary>
+        <p class="ai-narrative">${escapeHtml(text.slice(split).trim())}</p>
+      </details>`;
+  }
+
+  function renderAIList(values) {
+    const items = Array.isArray(values) ? values.filter((item) => String(item || "").trim()) : [];
+    if (!items.length) return "";
+    const list = (rows) => `<ul class="ai-interpretation-list">${rows.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`;
+    return list(items.slice(0, 3)) + (items.length > 3
+      ? `<details class="ai-read-more"><summary>More observations (${items.length - 3})</summary>${list(items.slice(3))}</details>`
+      : "");
+  }
+
+  function aiFreshnessDisclosure() {
+    if (!latestAIAnalysis) return "";
+    const saved = savedAIAnalysisResponse || {};
+    const generatedAt = Date.parse(saved.generated_at || "");
+    const snapshot = activeDashboardData && activeDashboardData.backendSnapshot;
+    const marketTime = Date.parse(snapshot && snapshot.generated_at ||
+      activeDashboardData && activeDashboardData.source && activeDashboardData.source.lastRefreshed || "");
+    const older = Number.isFinite(generatedAt) && Number.isFinite(marketTime) && generatedAt < marketTime;
+    const sourceStale = Boolean(activeDashboardData && activeDashboardData.source && activeDashboardData.source.stale);
+    const message = older
+      ? "Analysis predates the displayed market snapshot. Refresh AI analysis for an updated interpretation."
+      : sourceStale ? "Displayed market data is stale; this saved interpretation may not reflect current conditions." : "";
+    return `<div class="ai-source-note${older || sourceStale ? " is-stale" : ""}">
+      <div class="ai-source-note-meta">
+        <span class="ai-timestamp-label">Analysis generated: ${saved.generated_at ? escapeHtml(formatDateTime(saved.generated_at)) : "--"}</span>
+        <span class="ai-saved-pill">Saved analysis</span>
+      </div>
+      ${message ? `<div class="ai-stale-alert"><span class="ai-stale-icon" aria-hidden="true">⚠</span> <span>${escapeHtml(message)}</span></div>` : ""}
+    </div>`;
+  }
+
+  function renderMarketRead(summaryText) {
+    const text = String(summaryText || "").trim();
+    if (!text) return '<p class="empty-state">No market read available.</p>';
+    if (text.length <= 650) {
+      return `<p class="ai-narrative advisor-read-text">${escapeHtml(text)}</p>`;
+    }
+    const boundary = text.lastIndexOf(" ", 650);
+    const split = boundary > 400 ? boundary : 650;
+    return `<p class="ai-narrative advisor-read-text">${escapeHtml(text.slice(0, split))}</p>
+      <details class="ai-read-more"><summary>Read more</summary>
+        <p class="ai-narrative">${escapeHtml(text.slice(split).trim())}</p>
+      </details>`;
+  }
+
+  function renderKeyRisks(keyRisks) {
+    const items = Array.isArray(keyRisks) ? keyRisks.filter((r) => String(r || "").trim()).slice(0, 3) : [];
+    if (!items.length) {
+      return '<p class="empty-state">No key risks flagged.</p>';
+    }
+    return `
+      <ul class="advisor-items-list key-risks-list">
+        ${items.map((item) => `
+          <li class="advisor-item-row risk-row">
+            <span class="advisor-item-dot risk-dot" aria-hidden="true"></span>
+            <span class="advisor-item-text">${escapeHtml(item)}</span>
+          </li>
+        `).join("")}
+      </ul>
+    `;
+  }
+
+  function renderWatchNext(watchItems) {
+    const items = Array.isArray(watchItems) ? watchItems.filter((w) => String(w || "").trim()).slice(0, 3) : [];
+    if (!items.length) {
+      return '<p class="empty-state">No active watch items.</p>';
+    }
+    return `
+      <ul class="advisor-items-list watch-items-list">
+        ${items.map((item) => `
+          <li class="advisor-item-row watch-row">
+            <span class="advisor-item-dot watch-dot" aria-hidden="true"></span>
+            <span class="advisor-item-text">${escapeHtml(item)}</span>
+          </li>
+        `).join("")}
+      </ul>
+    `;
+  }
+
+  function renderAIInterpretationLocations() {
+    const analysis = latestAIAnalysis;
+    const disclosure = aiFreshnessDisclosure();
+    const advisor = analysis && analysis.risk_advisor_view;
+    setHtml("advisorAIContent", advisor
+      ? `
+        <div class="advisor-grid">
+          <div class="advisor-card advisor-read-card">
+            <div class="advisor-card-head">
+              <div class="advisor-card-title-group">
+                <span class="advisor-badge badge-read" aria-hidden="true">📊</span>
+                <h4 class="advisor-card-title">Market Read</h4>
+              </div>
+              <span class="advisor-card-hint">Executive View</span>
+            </div>
+            <div class="advisor-card-content">
+              ${renderMarketRead(advisor.summary)}
+            </div>
+          </div>
+
+          <div class="advisor-card advisor-risks-card">
+            <div class="advisor-card-head">
+              <div class="advisor-card-title-group">
+                <span class="advisor-badge badge-risk" aria-hidden="true">⚠</span>
+                <h4 class="advisor-card-title">Key Risks</h4>
+              </div>
+              <span class="advisor-card-hint">Top Alerts</span>
+            </div>
+            <div class="advisor-card-content">
+              ${renderKeyRisks(advisor.key_risks)}
+            </div>
+          </div>
+
+          <div class="advisor-card advisor-watch-card">
+            <div class="advisor-card-head">
+              <div class="advisor-card-title-group">
+                <span class="advisor-badge badge-watch" aria-hidden="true">👁</span>
+                <h4 class="advisor-card-title">Watch Next</h4>
+              </div>
+              <span class="advisor-card-hint">Tactical Watch</span>
+            </div>
+            <div class="advisor-card-content">
+              ${renderWatchNext(advisor.watch_items)}
+            </div>
+          </div>
+        </div>
+        ${disclosure}
+      `
+      : `<p class="empty-state">Generate an AI analysis to view current interpretation.</p>`);
+
+    const pattern = analysis && analysis.pattern_and_inference;
+    const observations = pattern && renderAIList(pattern.observations);
+    setHtml("aiPatternContent", pattern
+      ? `${observations ? `<h3 class="interpretation-label">Observed Pattern</h3>${observations}<h3 class="interpretation-label">Interpretation / Implication</h3>` : ""}
+        ${renderAINarrative(pattern.summary)}${disclosure}`
+      : `<p class="empty-state">No AI analysis available yet.</p>`);
+
+    const overall = analysis && analysis.overall_position;
+    // Gemini's status is interpretive only; the gauge and displayed rating remain deterministic.
+    setHtml("aiOverallPositionContent", overall
+      ? renderAINarrative(overall.summary) + disclosure
+      : `<p class="empty-state">No AI analysis available yet.</p>`);
+
+    const actions = analysis && analysis.management_actions && analysis.management_actions.actions;
+    setHtml("aiManagementActionsContent", Array.isArray(actions) && actions.length
+      ? `<ol class="ai-action-list">${actions.map((item) => `<li class="ai-action-row">
+          <strong>${escapeHtml(item.action || "")}</strong>
+          ${item.rationale ? `<p>${escapeHtml(item.rationale)}</p>` : ""}
+          ${item.priority ? `<span class="ai-action-priority">Priority: ${escapeHtml(item.priority)}</span>` : ""}
+        </li>`).join("")}</ol>${disclosure}`
+      : `<p class="empty-state">No AI-generated management actions available yet.</p>`);
   }
 
   function renderAIAnalysis() {
+    renderAIInterpretationLocations();
     const content = document.getElementById("aiAnalysisContent");
     const status = document.getElementById("aiAnalysisStatus");
     const timestamp = document.getElementById("aiAnalysisGeneratedAt");
     const button = document.getElementById("aiRefreshButton");
-    if (!content || !status || !timestamp) {
-      return;
-    }
+    if (!content || !status || !timestamp) return;
 
     const response = aiAnalysisEnvelope && (aiAnalysisEnvelope.data || aiAnalysisEnvelope);
     const analysis = latestAIAnalysis;
     const isError = (response && response.status && response.status !== "completed") ||
       (aiAnalysisEnvelope && aiAnalysisEnvelope.available === false);
     status.classList.toggle("is-error", Boolean(isError));
-    timestamp.textContent = response && response.generated_at
-      ? `Generated ${formatDateTime(response.generated_at)}`
-      : "";
-    if (button) {
-      button.disabled = false;
-    }
-
+    timestamp.textContent = savedAIAnalysisResponse && savedAIAnalysisResponse.generated_at
+      ? `Generated ${formatDateTime(savedAIAnalysisResponse.generated_at)}` : "";
+    if (button) button.disabled = false;
     if (!analysis) {
-      content.innerHTML = `<p class="empty-state">${escapeHtml(
-        response && response.message
-          ? response.message
-          : (aiAnalysisEnvelope && aiAnalysisEnvelope.message) || "No saved AI analysis is available yet."
-      )}</p>`;
-      status.textContent = isError
-        ? (response && response.message || aiAnalysisEnvelope.message || "AI analysis failed.")
+      content.innerHTML = `<p class="empty-state">${escapeHtml(response && response.message || "No saved AI analysis is available yet.")}</p>`;
+      status.textContent = isError ? (response && response.message || "AI analysis failed.")
         : "Refresh AI Analysis to generate a new interpretation.";
       return;
     }
-
-    status.textContent = response && response.message ? response.message : "Latest completed AI analysis loaded.";
+    status.textContent = (response && response.message || "Latest completed AI analysis loaded.") +
+      (isError ? " Last saved interpretation remains displayed." : "");
+    // Only sections that have not been relocated belong in the shared AI panel.
     const sections = [
       ["Daily Briefing", analysis.daily_briefing, ["key_points"]],
-      ["Risk Advisor View", analysis.risk_advisor_view, ["key_risks", "watch_items"]],
-      ["Trader Desk Pulse", analysis.trader_desk_pulse, ["market_signals"]],
-      ["Pattern & Inference", analysis.pattern_and_inference, ["observations"]],
-      ["Management Actions", analysis.management_actions, ["actions"]],
-      ["Overall Position", analysis.overall_position, []]
+      ["Trader Desk Pulse", analysis.trader_desk_pulse, ["market_signals"]]
     ];
-
-    content.innerHTML = sections.map(([title, section, listKeys]) => {
-      if (!section) {
-        return "";
-      }
-      const heading = section.headline || section.summary || section.status || "";
-      const summary = section.headline ? section.summary : "";
-      const lists = listKeys.map((key) => {
-        const values = Array.isArray(section[key]) ? section[key] : [];
-        if (key === "actions") {
-          return values.length ? `<ul>${values.map((item) => `
-            <li class="priority-${escapeAttribute(item.priority || "medium")}">
-              <strong>${escapeHtml(item.action || "")}</strong> ${escapeHtml(item.rationale || "")} (${escapeHtml(item.priority || "medium")})
-            </li>`).join("")}</ul>` : "";
-        }
-        return values.length ? `<ul>${values.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>` : "";
-      }).join("");
-      return `<section class="ai-analysis-section">
-        <h3>${escapeHtml(title)}${title === "Overall Position" ? `: ${escapeHtml(section.status || "")}` : ""}</h3>
-        ${heading && !section.headline ? `<p>${escapeHtml(heading)}</p>` : ""}
-        ${section.headline ? `<p><strong>${escapeHtml(section.headline)}</strong></p><p>${escapeHtml(summary)}</p>` : ""}
-        ${lists}
-      </section>`;
-    }).join("");
-
+    content.innerHTML = sections.map(([title, section, listKeys]) => section
+      ? `<section class="ai-analysis-section"><h3>${escapeHtml(title)}</h3>
+          ${section.headline ? `<p><strong>${escapeHtml(section.headline)}</strong></p>` : ""}
+          ${renderAINarrative(section.summary)}${listKeys.map((key) => renderAIList(section[key])).join("")}
+        </section>` : "").join("");
     if (Array.isArray(analysis.data_quality_notes) && analysis.data_quality_notes.length) {
-      content.innerHTML += `<section class="ai-analysis-section">
-        <h3>Data Quality Notes</h3>
-        <ul>${analysis.data_quality_notes.map((note) => `<li>${escapeHtml(note)}</li>`).join("")}</ul>
-      </section>`;
+      content.innerHTML += `<section class="ai-analysis-section"><h3>Data Quality Notes</h3>
+        ${renderAIList(analysis.data_quality_notes)}</section>`;
     }
+    const disclosure = aiFreshnessDisclosure();
+    if (disclosure) status.innerHTML += disclosure;
+  }
+
+  function setHtml(id, html) {
+    const element = document.getElementById(id);
+    if (element) element.innerHTML = html;
   }
 
   function renderRiskAdvisor() {
@@ -1667,7 +2280,8 @@
 
     container.innerHTML = `
       <div class="advisor-content">
-        ${riskAdvisorItems.map((item) => {
+        ${riskAdvisorItems.some((item) => String(item.commentary || "").trim()) ? '<h3 class="manual-commentary-label">Manual Commentary</h3>' : ""}
+        ${riskAdvisorItems.filter((item) => String(item.commentary || "").trim()).map((item) => {
           const classification = String(item.classification || "Watch");
           return `
             <div class="advisor-call">
@@ -1675,7 +2289,7 @@
                 <span class="advisor-label ${classification.toLowerCase()}">${escapeHtml(classification)}</span>
                 <span class="advisor-confidence">${escapeHtml(item.confidence || "Unassigned")}</span>
               </div>
-              <p>${escapeHtml(item.commentary || "No admin-entered commentary.")}</p>
+              <p>${escapeHtml(item.commentary)}</p>
             </div>
           `;
         }).join("")}
@@ -1725,12 +2339,21 @@
       return;
     }
 
-    const displaySummary = apiMacroMode
+    document.getElementById("macroTabs").innerHTML = ["nigeria", "usa", "global"].map((geography) => `
+      <button id="macroTab-${geography}" class="macro-tab" type="button" role="tab"
+        data-action="macro-tab" data-geography="${geography}" ${editModes.macro ? "disabled" : ""} aria-selected="${geography === macroGeography}"
+        aria-controls="macroMetricGrid" tabindex="${geography === macroGeography ? 0 : -1}">${geography === "usa" ? "USA" : titleCase(geography)}</button>`).join("");
+    grid.setAttribute?.("aria-labelledby", `macroTab-${macroGeography}`);
+    const nigeriaSummary = apiMacroMode
       ? mergeMacroSummaryWithApi(macroSummary, activeDashboardData)
       : normalizeMacroSummary(macroSummary);
-    macroSummary = displaySummary;
+    const displaySummary = macroGeography === "nigeria" ? nigeriaSummary : {
+      metrics: macroMetricsFromDashboardData(activeDashboardData, macroGeography), whyItMatters: ""
+    };
+    // Preserve the Nigeria manual summary independently of geographic tab selection.
+    if (macroGeography === "nigeria") macroSummary = displaySummary;
 
-    if (editModes.macro && !apiMacroMode) {
+    if (editModes.macro && !apiMacroMode && macroGeography === "nigeria") {
       grid.innerHTML = macroSummary.metrics.map((metric, index) => `
         <article class="panel macro-card" data-macro-index="${index}">
           <label>Metric
@@ -1747,6 +2370,7 @@
           </label>
         </article>
       `).join("");
+      note.style.display = "";
       note.innerHTML = `
         <label>Why it matters
           <textarea data-macro-why>${escapeHtml(macroSummary.whyItMatters)}</textarea>
@@ -1757,7 +2381,8 @@
 
     grid.innerHTML = displaySummary.metrics.map(renderMacroCard).join("");
 
-    if (editModes.macro && apiMacroMode) {
+    if (editModes.macro && apiMacroMode && macroGeography === "nigeria") {
+      note.style.display = "";
       note.innerHTML = `
         <label>Why it matters
           <textarea data-macro-why>${escapeHtml(displaySummary.whyItMatters)}</textarea>
@@ -1766,9 +2391,14 @@
       return;
     }
 
-    note.innerHTML = displaySummary.whyItMatters
-      ? `<strong>Why it matters:</strong> ${escapeHtml(displaySummary.whyItMatters)}`
-      : `<span class="empty-state">No admin-entered macro commentary.</span>`;
+    const hasCommentary = Boolean(displaySummary.whyItMatters && displaySummary.whyItMatters.trim());
+    if (hasCommentary) {
+      note.style.display = "";
+      note.innerHTML = `<strong>Why it matters:</strong> ${escapeHtml(displaySummary.whyItMatters)}`;
+    } else {
+      note.style.display = "none";
+      note.innerHTML = "";
+    }
   }
 
   function renderMacroCard(metric) {
@@ -1781,7 +2411,10 @@
         <div class="macro-label">${escapeHtml(metric.title)}</div>
         <div class="macro-value">${escapeHtml(metric.value)}</div>
         <div class="macro-period">${escapeHtml(metric.period)}</div>
-        <div class="macro-source">Source: ${escapeHtml(metric.sourceLabel || sourceShortName(metric.source))}</div>
+        <div class="macro-source">Source: ${/^https?:\/\//i.test(metric.sourceUrl || "")
+          ? `<a href="${escapeAttribute(metric.sourceUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(metric.sourceLabel || sourceShortName(metric.source))}</a>`
+          : escapeHtml(metric.sourceLabel || sourceShortName(metric.source))}</div>
+        ${metric.direction || metric.change !== null && metric.change !== undefined ? `<div class="macro-change">${escapeHtml(metric.direction || "Change")}${metric.change !== null && metric.change !== undefined ? `: ${escapeHtml(metric.change)}` : ""}</div>` : ""}
         <div class="macro-freshness freshness-${escapeAttribute(freshness)}">${escapeHtml(freshnessLabel(freshness))}</div>
         ${metric.note ? `<div class="macro-note">${escapeHtml(metric.note)}</div>` : ""}
       </article>
@@ -1820,17 +2453,15 @@
       return;
     }
 
-    container.innerHTML = `
-      <div class="chain-row">
-        ${inferenceChain.nodes.map((node) => `
-          <div class="chain-node">
-            <strong>${escapeHtml(node.label)}</strong>
-            <span>${escapeHtml(node.detail || "No admin-entered detail.")}</span>
-          </div>
-        `).join("")}
-      </div>
-      <p class="chain-commentary">${escapeHtml(inferenceChain.commentary || "No admin-entered inference commentary.")}</p>
-    `;
+    const manualNodes = inferenceChain.nodes.filter((node) => String(node.detail || "").trim());
+    const hasManualCommentary = manualNodes.length || String(inferenceChain.commentary || "").trim();
+    container.innerHTML = hasManualCommentary ? `
+      <details class="manual-interpretation"><summary>Manual Pattern Commentary</summary>
+        ${manualNodes.length ? `<div class="chain-row">${manualNodes.map((node) => `
+          <div class="chain-node"><strong>${escapeHtml(node.label)}</strong><span>${escapeHtml(node.detail)}</span></div>
+        `).join("")}</div>` : ""}
+        ${inferenceChain.commentary ? `<p class="chain-commentary">${escapeHtml(inferenceChain.commentary)}</p>` : ""}
+      </details>` : "";
   }
 
   function renderGeopoliticalRisk(data) {
@@ -1897,7 +2528,7 @@
     body.innerHTML = riskRegisterRows.map((row, index) => {
       if (editModes.register) {
         return `
-          <tr data-risk-row="${index}">
+          <tr data-risk-row="${index}" data-risk-id="${row.id || ""}">
             <td>
               <strong>${index + 1}</strong>
               <button class="mini-button danger" type="button" data-action="delete-risk-row" data-index="${index}">Delete</button>
@@ -1924,94 +2555,96 @@
 
   function renderForwardCalendar() {
     const container = document.getElementById("forwardCalendarContent");
-
-    renderSectionActions("calendarActions", "calendar", editModes.calendar ? `
-      <button class="mini-button secondary" type="button" data-action="add-calendar-row" data-group="marketEvents">Add Market Row</button>
-      <button class="mini-button secondary" type="button" data-action="add-calendar-row" data-group="businessEvents">Add Business Row</button>
-    ` : "");
-
-    if (!container) {
-      return;
-    }
-
+    const service = global.OilRiskCalendarService;
+    const calendar = service.normalize(forwardCalendar);
+    renderSectionActions("calendarActions", "calendar", editModes.calendar
+      ? `<button class="mini-button secondary" type="button" data-action="add-calendar-row">Add Event</button>` : "");
+    if (!container) return;
     if (editModes.calendar) {
-      container.innerHTML = `
-        ${renderCalendarEditGroup("Market / Economic Events", "marketEvents", forwardCalendar.marketEvents)}
-        ${renderCalendarEditGroup("Business / Political Events", "businessEvents", forwardCalendar.businessEvents)}
-      `;
+      container.innerHTML = `<div class="panel calendar-editor">
+        <p class="calendar-editor-note">Manual events · browser-local storage. All saved months are included here.</p>
+        <p id="calendarEditError" class="calendar-edit-error" role="alert"></p>
+        <div class="edit-stack">${calendar.events.map(renderCalendarEditorRow).join("") || '<p class="empty-state">Add an event to get started.</p>'}</div>
+      </div>`;
       return;
     }
-
+    const currentDate = service.today();
+    const rows = service.eventsForMonth(calendar, calendarMonth, calendarFilter, currentDate);
+    const undated = service.unscheduled(calendar, calendarFilter);
     container.innerHTML = `
-      ${renderCalendarGroup("Market / Economic Events", forwardCalendar.marketEvents)}
-      ${renderCalendarGroup("Business / Political Events", forwardCalendar.businessEvents)}
-    `;
-  }
-
-  function renderCalendarGroup(title, rows) {
-    return `
-      <article class="panel calendar-card">
-        <h3>${escapeHtml(title)}</h3>
-        ${rows.length ? rows.map((row) => `
-          <div class="calendar-row">
-            ${renderCalendarDate(row.date)}
-            <div class="calendar-event-content">
-              <p class="calendar-title">${escapeHtml(row.title || "Untitled event")}</p>
-              <p class="calendar-note">${escapeHtml(row.note || "")}</p>
-            </div>
-          </div>
-        `).join("") : `<p class="empty-state">No upcoming events</p>`}
-      </article>
-    `;
-  }
-
-  function renderCalendarDate(value) {
-    const rawDate = String(value || "").trim();
-    const match = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(rawDate);
-
-    if (!match) {
-      return `<div class="calendar-date calendar-date-tbc"><span>${escapeHtml(rawDate || "TBC")}</span></div>`;
-    }
-
-    const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
-    if (Number.isNaN(date.getTime())) {
-      return `<div class="calendar-date calendar-date-tbc"><span>${escapeHtml(rawDate)}</span></div>`;
-    }
-
-    const month = date.toLocaleDateString("en-GB", { month: "short", timeZone: "UTC" }).toUpperCase();
-    return `
-      <div class="calendar-date" aria-label="${escapeAttribute(rawDate)}">
-        <span class="calendar-date-day">${date.getUTCDate()}</span>
-        <span class="calendar-date-month">${month}</span>
-        <span class="calendar-date-year">${date.getUTCFullYear()}</span>
-      </div>
-    `;
-  }
-
-  function renderCalendarEditGroup(title, group, rows) {
-    return `
-      <article class="panel calendar-card">
-        <h3>${escapeHtml(title)}</h3>
-        <div class="edit-stack">
-          ${rows.map((row, index) => `
-            <div class="edit-card" data-calendar-group="${group}" data-calendar-index="${index}">
-              <div class="edit-row three">
-                <label>Date
-                  <input data-field="date" type="text" value="${escapeAttribute(row.date)}" />
-                </label>
-                <label>Title
-                  <input data-field="title" type="text" value="${escapeAttribute(row.title)}" />
-                </label>
-                <label>Relevance note
-                  <input data-field="note" type="text" value="${escapeAttribute(row.note)}" />
-                </label>
-              </div>
-              <button class="mini-button danger" type="button" data-action="delete-calendar-row" data-group="${group}" data-index="${index}">Delete Row</button>
-            </div>
-          `).join("") || `<p class="empty-state">No rows entered.</p>`}
+      <div class="calendar-toolbar">
+        <div class="calendar-navigation" aria-label="Calendar month navigation">
+          <button class="mini-button secondary" type="button" data-action="calendar-month" data-offset="-1" aria-label="Previous month">Previous</button>
+          <label><span class="visually-hidden">Calendar month</span><input id="calendarMonth" type="month" value="${escapeAttribute(calendarMonth)}" /></label>
+          <button class="mini-button secondary" type="button" data-action="calendar-month" data-offset="1" aria-label="Next month">Next</button>
+          <button class="mini-button secondary" type="button" data-action="calendar-current">Current month</button>
         </div>
-      </article>
-    `;
+        <div class="calendar-filters" role="group" aria-label="Filter calendar events">
+          ${Object.entries(service.FILTERS).map(([key,label]) => `<button type="button" class="calendar-filter${calendarFilter === key ? " is-active" : ""}" data-action="calendar-filter" data-filter="${key}" aria-pressed="${calendarFilter === key}">${escapeHtml(label)}</button>`).join("")}
+        </div>
+      </div>
+      ${calendar.storage_error ? `<p class="calendar-edit-error" role="alert">${escapeHtml(calendar.storage_error)}</p>` : ""}
+      <div class="panel calendar-event-board">
+        ${rows.length ? rows.map(event => renderCalendarEvent(event, currentDate)).join("") : '<p class="empty-state">No upcoming events for this selection.</p>'}
+      </div>
+      ${undated.length ? `<details class="calendar-unscheduled"><summary>Unscheduled events (${undated.length})</summary>
+        <p>Saved entries without a verified calendar date. An admin can update these dates.</p>
+        <div class="panel calendar-event-board">${undated.map(event => renderCalendarEvent(event,currentDate)).join("")}</div>
+      </details>` : ""}`;
+  }
+
+  function renderCalendarEvent(event, currentDate) {
+    const service = global.OilRiskCalendarService;
+    const state = service.eventState(event, currentDate);
+    const high = event.impact_level === "high" && state !== "past" && state !== "unscheduled";
+    const status = state === "today" ? (event.event_date === currentDate ? "Today" : "Ongoing") : state === "next-seven" ? "Next 7 days" : state === "past" ? "Past" : "";
+    const sourceUrl = event.source_type === "official" && /^https?:\/\//i.test(event.source_url || "") ? event.source_url : "";
+    return `<article class="calendar-event is-${state}${high ? " is-high-impact" : ""}" data-calendar-event-id="${escapeAttribute(event.id)}">
+      ${renderCalendarDate(event.event_date, event.legacy_date)}
+      <div class="calendar-event-details">
+        <h3>${escapeHtml(event.title || "Untitled event")}</h3>
+        ${event.end_date ? `<p class="calendar-event-range">Through ${escapeHtml(event.end_date)}</p>` : ""}
+        ${status ? `<span class="calendar-time-badge">${status}</span>` : ""}
+        ${sourceUrl ? `<a class="calendar-source" href="${escapeAttribute(sourceUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(event.source_name || "Official source")}</a>` : ""}
+      </div>
+      <div class="calendar-event-meta">
+        <span class="calendar-category">${escapeHtml(service.CATEGORIES[event.category])}</span>
+        <span>${escapeHtml(event.region)}${event.country ? ` · ${escapeHtml(event.country)}` : ""}</span>
+        ${event.impact_level ? `<span class="calendar-impact">${escapeHtml(event.impact_level)} impact</span>` : ""}
+      </div>
+      <p class="calendar-impact-note">${escapeHtml(event.description || "")}</p>
+    </article>`;
+  }
+
+  function renderCalendarDate(value, legacyDate) {
+    if (!value) return `<div class="calendar-date calendar-date-tbc"><span>${escapeHtml(legacyDate || "TBC")}</span></div>`;
+    const date = new Date(`${value}T00:00:00Z`);
+    const month = date.toLocaleDateString("en-GB", { month: "short", timeZone: "UTC" }).toUpperCase();
+    return `<time class="calendar-date" datetime="${escapeAttribute(value)}">
+      <span class="calendar-date-month">${month}</span><span class="calendar-date-day">${date.getUTCDate()}</span>
+      <span class="calendar-date-year">${date.getUTCFullYear()}</span></time>`;
+  }
+
+  function renderCalendarEditorRow(row, index) {
+    const service = global.OilRiskCalendarService;
+    const select = (field, options, selected) => `<select data-field="${field}">${options.map(([value,label])=>`<option value="${escapeAttribute(value)}"${value === selected ? " selected" : ""}>${escapeHtml(label)}</option>`).join("")}</select>`;
+    return `<div class="edit-card" data-calendar-index="${index}">
+      <div class="calendar-edit-fields">
+        <label>Date<input data-field="date" type="date" value="${escapeAttribute(row.event_date)}"${row.legacy_date ? "" : " required"} /></label>
+        <label>Title<input data-field="title" type="text" value="${escapeAttribute(row.title)}" required /></label>
+        <label>Category${select("category",Object.entries(service.CATEGORIES),row.category)}</label>
+        <label>Region${select("region",service.REGIONS.map(region=>[region,region]),row.region)}</label>
+        <label>Impact${select("impact_level",[["","Unspecified"],["low","Low"],["moderate","Moderate"],["high","High"]],row.impact_level || "")}</label>
+      </div>
+      ${row.legacy_date ? `<p class="calendar-editor-note">Original saved date: ${escapeHtml(row.legacy_date)}. Set a date when confirmed.</p>` : ""}
+      <label>Short note<textarea data-field="description">${escapeHtml(row.description || "")}</textarea></label>
+      <details><summary>Additional details</summary><div class="calendar-edit-fields">
+        <label>End date (optional)<input data-field="end_date" type="date" value="${escapeAttribute(row.end_date || "")}" /></label>
+        <label>Country (optional)<input data-field="country" type="text" value="${escapeAttribute(row.country || "")}" /></label>
+        <label class="calendar-active-field">Active<input data-field="active" type="checkbox"${row.active ? " checked" : ""} /></label>
+      </div></details>
+      <button class="mini-button danger" type="button" data-action="delete-calendar-row" data-index="${index}">Delete Event</button>
+    </div>`;
   }
 
   function renderManagementActions() {
@@ -2076,6 +2709,7 @@
     const topDriver = categories.slice().sort((a, b) => RISK_SCORES[b.rating] - RISK_SCORES[a.rating])[0];
 
     setText("overallRiskLabel", overallRating);
+    setText("overallPositionRating", overallRating);
     setText("overallRiskDriver", topDriver ? `Primary driver: ${topDriver.name} (${topDriver.rating})` : "");
 
     if (gauge) {
@@ -2104,6 +2738,13 @@
       if (categoryId === "market") {
         const marketRating = highestRiskRating(productStats.map((stat) => stat.status));
         rating = highestRiskRating([rating, marketRating]);
+      }
+
+      if (categoryId === "company" && Array.isArray(riskRegisterRows) && riskRegisterRows.length) {
+        const materialityMap = { Low: "Low", Moderate: "Moderate", Major: "High", Catastrophic: "Catastrophic" };
+        const registerRatings = riskRegisterRows.map((row) => materialityMap[row.materiality] || "Moderate");
+        const registerRating = highestRiskRating(registerRatings);
+        rating = highestRiskRating([rating, registerRating]);
       }
 
       if (categoryRiskOverrides[categoryId]) {
@@ -2182,6 +2823,7 @@
       return;
     }
 
+    if (section === "macro") macroGeography = "nigeria";
     editSnapshots[section] = clone(getSectionState(section));
     editModes[section] = true;
     closeModal("adminPanelModal");
@@ -2215,12 +2857,17 @@
     } else if (section === "register") {
       riskRegisterRows = readRiskRegisterDraft();
       saveJson(STORAGE_KEYS.riskRegister, riskRegisterRows);
+      saveRiskRegisterToBackend(riskRegisterRows);
     } else if (section === "actions") {
       managementActions = normalizeManagementActions(readManagementDraft());
       saveJson(STORAGE_KEYS.managementActions, managementActions);
     } else if (section === "calendar") {
-      forwardCalendar = normalizeForwardCalendar(readCalendarDraft());
-      saveJson(STORAGE_KEYS.forwardCalendar, forwardCalendar);
+      const draft = readCalendarDraft();
+      const error = global.OilRiskCalendarService.validationError(draft);
+      if (error) { setText("calendarEditError", error); return; }
+      try { forwardCalendar = global.OilRiskCalendarService.save(draft); }
+      catch (_) { setText("calendarEditError", "Unable to save calendar events. Check browser storage and try again."); return; }
+      saveCalendarToBackend(draft.events);
     }
 
     editModes[section] = false;
@@ -2341,6 +2988,7 @@
 
   function readRiskRegisterDraft() {
     return Array.from(document.querySelectorAll("[data-risk-row]")).map((row) => normalizeRiskRegisterRow({
+      id: row.dataset.riskId ? Number(row.dataset.riskId) : undefined,
       riskCategory: valueOf(row, "[data-field='riskCategory']"),
       materiality: valueOf(row, "[data-field='materiality']"),
       movement: valueOf(row, "[data-field='movement']"),
@@ -2349,18 +2997,29 @@
   }
 
   function readCalendarDraft() {
-    return {
-      marketEvents: readCalendarGroup("marketEvents"),
-      businessEvents: readCalendarGroup("businessEvents")
-    };
-  }
-
-  function readCalendarGroup(group) {
-    return Array.from(document.querySelectorAll(`[data-calendar-group="${group}"]`)).map((row) => ({
-      date: valueOf(row, "[data-field='date']"),
-      title: valueOf(row, "[data-field='title']"),
-      note: valueOf(row, "[data-field='note']")
-    }));
+    const calendar = global.OilRiskCalendarService.normalize(forwardCalendar);
+    const events = Array.from(document.querySelectorAll("[data-calendar-index]")).map((row) => {
+      const previous = calendar.events[Number(row.dataset.calendarIndex)] || {};
+      const update = {
+        ...previous,
+        event_date: valueOf(row, "[data-field='date']"),
+        title: valueOf(row, "[data-field='title']"),
+        category: valueOf(row, "[data-field='category']"),
+        region: valueOf(row, "[data-field='region']"),
+        impact_level: valueOf(row, "[data-field='impact_level']") || null,
+        description: valueOf(row, "[data-field='description']"),
+        end_date: valueOf(row, "[data-field='end_date']") || null,
+        country: valueOf(row, "[data-field='country']") || null,
+        active: Boolean(row.querySelector("[data-field='active']")?.checked)
+      };
+      const changed = ["event_date","title","category","region","impact_level","description","end_date","country","active"].some(key=>update[key] !== previous[key]);
+      if (changed) { update.source_type = "manual"; update.verified_at = null; update.source_name = null; update.source_url = null; }
+      // The legacy raw date is retained only while the date field remains unresolved.
+      update.legacy_date = update.event_date ? null : previous.legacy_date;
+      delete update.date;
+      return update;
+    });
+    return global.OilRiskCalendarService.normalize({ ...calendar, events });
   }
 
   function readManagementDraft() {
@@ -2430,7 +3089,86 @@
   }
 
   function loadRiskRegisterRows() {
+    const apiRows = (activeDashboardData && Array.isArray(activeDashboardData.risk_register) && activeDashboardData.risk_register.length > 0)
+      ? activeDashboardData.risk_register
+      : (activeDashboardData && activeDashboardData.backendSnapshot && Array.isArray(activeDashboardData.backendSnapshot.risk_register) && activeDashboardData.backendSnapshot.risk_register.length > 0)
+        ? activeDashboardData.backendSnapshot.risk_register
+        : null;
+
+    if (apiRows) {
+      return normalizeRiskRegisterRows(apiRows);
+    }
     return normalizeRiskRegisterRows(loadJson(STORAGE_KEYS.riskRegister, DEFAULT_RISK_REGISTER_ROWS));
+  }
+
+  async function saveRiskRegisterToBackend(rows) {
+    try {
+      const payload = rows.map((r, index) => ({
+        id: r.id || undefined,
+        risk_category: r.riskCategory || "",
+        materiality: r.materiality || "Moderate",
+        trend: r.movement === "increased" ? "increasing" : (r.movement === "reduced" ? "decreasing" : "unchanged"),
+        risk_owner: r.riskOwner || "",
+        display_order: index + 1,
+        active: true
+      }));
+
+      const res = await fetch("/api/dashboard/risk-register", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        if (Array.isArray(updated) && updated.length) {
+          riskRegisterRows = normalizeRiskRegisterRows(updated);
+          saveJson(STORAGE_KEYS.riskRegister, riskRegisterRows);
+          if (activeDashboardData) {
+            activeDashboardData.risk_register = updated;
+          }
+          renderRiskRegister();
+          renderOverallRisk(enrichedDashboardData, currentMarketStats);
+        }
+      }
+    } catch (err) {
+      console.warn("Unable to persist risk register to backend:", err);
+    }
+  }
+
+  async function saveCalendarToBackend(events) {
+    try {
+      if (typeof window === "undefined" || !window.location || !window.location.origin) return;
+      if (global.OilRiskCalendarService && global.OilRiskCalendarService.migrateLegacy) {
+        await global.OilRiskCalendarService.migrateLegacy(events);
+      }
+    } catch (err) {
+      console.warn("Unable to persist calendar events to backend:", err);
+    }
+  }
+
+  async function initCalendarBackendSync() {
+    try {
+      if (typeof window === "undefined" || !window.location || !window.location.origin) return;
+      if (!global.OilRiskCalendarService) return;
+      const storage = typeof localStorage !== "undefined" ? localStorage : null;
+      const MIGRATION_FLAG_KEY = "daily-oil-trading-calendar-migrated";
+      const hasMigrated = storage ? storage.getItem(MIGRATION_FLAG_KEY) : null;
+      if (!hasMigrated && forwardCalendar && Array.isArray(forwardCalendar.events) && forwardCalendar.events.length) {
+        try {
+          await global.OilRiskCalendarService.migrateLegacy(forwardCalendar.events);
+          if (storage) storage.setItem(MIGRATION_FLAG_KEY, "true");
+        } catch (migErr) {
+          console.warn("Legacy calendar migration deferred:", migErr);
+        }
+      }
+      const backendCalendar = await global.OilRiskCalendarService.fetchEvents();
+      if (backendCalendar && Array.isArray(backendCalendar.events) && backendCalendar.events.length) {
+        forwardCalendar = backendCalendar;
+        renderForwardCalendar();
+      }
+    } catch (err) {
+      console.warn("Backend calendar sync unavailable:", err);
+    }
   }
 
   function loadMacroSummary(data) {
@@ -2461,7 +3199,7 @@
   }
 
   function loadForwardCalendar() {
-    return normalizeForwardCalendar(loadJson(STORAGE_KEYS.forwardCalendar, DEFAULT_FORWARD_CALENDAR));
+    return global.OilRiskCalendarService.load();
   }
 
   function loadManagementActions(data) {
@@ -2500,13 +3238,16 @@
       : "Moderate";
     const movement = MOVEMENT_OPTIONS.some((option) => option.value === source.movement)
       ? source.movement
-      : "unchanged";
+      : (source.trend === "increasing" ? "increased" : (source.trend === "decreasing" ? "reduced" : "unchanged"));
 
     return {
-      riskCategory: String(source.riskCategory || ""),
+      id: source.id,
+      riskCategory: String(source.riskCategory || source.risk_category || ""),
       materiality,
       movement,
-      riskOwner: String(source.riskOwner || "")
+      riskOwner: String(source.riskOwner || source.risk_owner || ""),
+      display_order: source.display_order,
+      active: source.active !== false
     };
   }
 
@@ -2551,7 +3292,7 @@
     };
   }
 
-  function macroMetricsFromDashboardData(data) {
+  function macroMetricsFromDashboardData(data, geography = "nigeria") {
     const source = data || {};
     const snapshot = source.backendSnapshot || {};
     const rawIndicators = Array.isArray(source.macroIndicators)
@@ -2562,10 +3303,6 @@
           ? snapshot.macro_indicators
           : [];
 
-    if (!rawIndicators.length) {
-      return [];
-    }
-
     const byKey = rawIndicators.reduce((result, item) => {
       if (item && item.indicator_key) {
         result[item.indicator_key] = item;
@@ -2573,7 +3310,7 @@
       return result;
     }, {});
 
-    return MACRO_INDICATOR_DEFINITIONS.map((definition) => {
+    return MACRO_INDICATOR_DEFINITIONS.filter((definition) => definition.geography === geography).map((definition) => {
       const raw = byKey[definition.key] || {};
       const rawValue = raw.value;
       const valueNumber = rawValue === null || rawValue === undefined || rawValue === ""
@@ -2581,7 +3318,7 @@
         : Number(rawValue);
       const hasValue = Number.isFinite(valueNumber);
       const sourceName = raw.source || definition.source;
-      const freshness = raw.freshness_status || raw.freshnessStatus || (hasValue ? "fresh" : "unavailable");
+      const freshness = hasValue ? (raw.freshness_status || raw.freshnessStatus || "fresh") : "unavailable";
       const metadata = raw.metadata_json || raw.metadataJson || {};
       const isCrudeOnly = definition.key === "crude_oil_production";
 
@@ -2594,7 +3331,11 @@
         sourceLabel: sourceShortName(sourceName),
         freshnessStatus: String(freshness).toLowerCase(),
         sourceUrl: raw.source_url || "",
-        note: isCrudeOnly ? "Crude only, excluding condensate" : "",
+        note: isCrudeOnly ? "Crude only, excluding condensate" : [definition.note,
+          metadata.forecast ? `Forecast / reference year ${metadata.reference_year || raw.reporting_period}` : "",
+          metadata.publication_edition || ""].filter(Boolean).join(" · "),
+        direction: hasValue ? metadata.direction || "" : "",
+        change: hasValue && Number.isFinite(Number(metadata.change)) && metadata.change !== null && metadata.change !== undefined ? metadata.change : null,
         tooltip: isCrudeOnly
           ? "Crude oil production excludes condensate. Combined crude plus condensate may be preserved only as metadata."
           : metadata.definition || ""
@@ -2632,6 +3373,8 @@
   function sourceShortName(source) {
     const text = String(source || "");
     const lower = text.toLowerCase();
+
+    if (lower.includes("statistics of china")) return "China NBS";
 
     if (lower.includes("national bureau of statistics")) {
       return "NBS";
@@ -2749,20 +3492,7 @@
   }
 
   function normalizeForwardCalendar(source) {
-    const input = source || {};
-
-    return {
-      marketEvents: normalizeCalendarRows(input.marketEvents),
-      businessEvents: normalizeCalendarRows(input.businessEvents)
-    };
-  }
-
-  function normalizeCalendarRows(rows) {
-    return (Array.isArray(rows) ? rows : []).map((row) => ({
-      date: textOr(row.date, ""),
-      title: textOr(row.title, ""),
-      note: textOr(row.note, "")
-    }));
+    return global.OilRiskCalendarService.normalize(source);
   }
 
   function normalizeManagementActions(source) {

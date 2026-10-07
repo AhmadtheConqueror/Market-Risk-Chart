@@ -12,6 +12,12 @@ from app.schemas.ai import AIAnalysisOutput
 from app.services.ai_context import build_dashboard_ai_context
 
 
+@pytest.fixture
+def anyio_backend():
+    # GeminiProvider and its SDK operate on asyncio, matching the ASGI runtime.
+    return "asyncio"
+
+
 VALID_ANALYSIS = {
     "daily_briefing": {
         "headline": "Market conditions require monitoring.",

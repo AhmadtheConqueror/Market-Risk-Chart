@@ -13,6 +13,7 @@ from app.models.market import MarketInstrument, MarketObservation
 from app.providers.market.oilpriceapi import OilPriceAPIError, OilPriceAPIProvider
 from app.services.calculations import calculate_instrument_stats
 from app.services.market_ingestion import (
+    backfill_all_instruments,
     backfill_history,
     ingest_latest_market_data,
     upsert_observation,
@@ -317,3 +318,139 @@ def test_insufficient_90d_history_z_score():
     assert stats_75["window_count"] == 75
     assert stats_75["history_status"] == "valid"
     assert stats_75["z_score"] is not None
+
+
+# 11. Endpoint resolution for 90-day coverage
+def test_resolve_history_endpoint_90_days():
+    # 90-day request must map to past_year for sufficient historical coverage
+    assert OilPriceAPIProvider.resolve_history_endpoint(days=90) == "past_year"
+    # Even if past_month is passed, 90-day window elevates to past_year
+    assert OilPriceAPIProvider.resolve_history_endpoint(days=90, endpoint="past_month") == "past_year"
+    # Short windows correctly map to past_week and past_month
+    assert OilPriceAPIProvider.resolve_history_endpoint(days=7) == "past_week"
+    assert OilPriceAPIProvider.resolve_history_endpoint(days=30) == "past_month"
+    assert OilPriceAPIProvider.resolve_history_endpoint(days=30, endpoint="past_month") == "past_month"
+    assert OilPriceAPIProvider.resolve_history_endpoint(days=7, endpoint="past_week") == "past_week"
+    assert OilPriceAPIProvider.resolve_history_endpoint(endpoint="past_year") == "past_year"
+
+
+# 12. get_history requests past_year for 90-day window
+@pytest.mark.anyio
+async def test_get_history_requests_past_year_for_90d(mock_httpx_client):
+    mock_resp = AsyncMock(spec=httpx.Response)
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "status": "success",
+        "data": {
+            "prices": [
+                {
+                    "code": "BRENT_CRUDE_USD",
+                    "price": 75.0 + i,
+                    "created_at": f"2026-06-{(i % 28) + 1:02d}T10:00:00Z",
+                }
+                for i in range(65)
+            ]
+        },
+    }
+    mock_httpx_client.get.return_value = mock_resp
+
+    provider = OilPriceAPIProvider(api_key="test-key", client=mock_httpx_client)
+    obs = await provider.get_history("BRENT_CRUDE_USD", days=90)
+
+    # Check that get_history invoked the past_year endpoint
+    call_args = mock_httpx_client.get.call_args
+    assert "prices/past_year" in call_args[0][0]
+    assert call_args[1]["params"] == {"by_code": "BRENT_CRUDE_USD"}
+    assert len(obs) == 65
+
+
+# 13. backfill_history uses past_year by default and persists observations
+@pytest.mark.anyio
+async def test_backfill_history_uses_past_year_default(db_session: Session):
+    inst = MarketInstrument(
+        instrument_key="brent",
+        display_name="Dated Brent",
+        unit="USD/bbl",
+        provider="oilpriceapi",
+        provider_symbol="BRENT_CRUDE_USD",
+        enabled=True,
+    )
+    db_session.add(inst)
+    db_session.commit()
+
+    mock_provider = AsyncMock(spec=OilPriceAPIProvider)
+    mock_provider.resolve_history_endpoint = OilPriceAPIProvider.resolve_history_endpoint
+    base_dt = date(2026, 9, 24)
+    mock_provider.get_history.return_value = [
+        {
+            "provider": "oilpriceapi",
+            "provider_symbol": "BRENT_CRUDE_USD",
+            "raw_value": 75.0 + i,
+            "raw_unit": "USD/bbl",
+            "assessment_date": (base_dt - timedelta(days=i)).isoformat(),
+        }
+        for i in range(65)
+    ]
+
+    res = await backfill_history(db_session, inst, provider=mock_provider, days=90)
+    assert res["status"] == "success"
+    assert res["period"] == "past_year"
+    assert res["stored"] == 65
+
+    # Verify provider was queried with endpoint past_year and days 90
+    mock_provider.get_history.assert_called_once_with("BRENT_CRUDE_USD", days=90, endpoint="past_year")
+
+    # Verify persisted in db
+    count = db_session.scalars(
+        select(MarketObservation).where(MarketObservation.instrument_id == inst.id)
+    ).all()
+    assert len(count) == 65
+
+
+# 14. backfill_all_instruments processes enabled oilpriceapi instruments with past_year
+@pytest.mark.anyio
+async def test_backfill_all_instruments(db_session: Session):
+    brent = MarketInstrument(
+        instrument_key="brent",
+        display_name="Brent",
+        unit="USD/bbl",
+        provider="oilpriceapi",
+        provider_symbol="BRENT_CRUDE_USD",
+        enabled=True,
+    )
+    wti = MarketInstrument(
+        instrument_key="wti",
+        display_name="WTI",
+        unit="USD/bbl",
+        provider="oilpriceapi",
+        provider_symbol="WTI_USD",
+        enabled=True,
+    )
+    forcados = MarketInstrument(
+        instrument_key="forcados",
+        display_name="Forcados",
+        unit="USD/bbl",
+        provider="internal_excel",
+        provider_symbol="PCABC00",
+        enabled=True,
+    )
+    db_session.add_all([brent, wti, forcados])
+    db_session.commit()
+
+    mock_provider = AsyncMock(spec=OilPriceAPIProvider)
+    mock_provider.resolve_history_endpoint = OilPriceAPIProvider.resolve_history_endpoint
+    mock_provider.get_history.return_value = [
+        {
+            "provider": "oilpriceapi",
+            "provider_symbol": "TEST",
+            "raw_value": 75.0,
+            "raw_unit": "USD/bbl",
+            "assessment_date": "2026-08-01",
+        }
+    ]
+
+    summary = await backfill_all_instruments(db_session, provider=mock_provider, days=90)
+    assert summary["period"] == "past_year"
+    assert summary["days"] == 90
+    assert summary["requested"] == 2  # Only brent and wti (oilpriceapi), forcados is internal_excel
+    assert summary["successful"] == 2

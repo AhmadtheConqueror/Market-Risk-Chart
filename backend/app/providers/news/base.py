@@ -98,10 +98,44 @@ def energy_relevant(title: str, snippet: str | None = None) -> bool:
     return any(keyword in text for keyword in keywords)
 
 
+NIGERIA_TERMS = (
+    "nigeria", "nigerian", "nnpc", "nuprc", "nlng",
+    "lagos", "abuja", "port harcourt", "bonny", "forcados",
+    "escravos", "brass river", "niger delta",
+)
+AFRICA_TERMS = (
+    "africa", "african", "angola", "libya", "algeria", "ghana",
+    "mozambique", "namibia", "senegal", "gabon", "congo",
+    "equatorial guinea", "south africa", "egypt", "kenya",
+    "uganda", "tanzania", "ivory coast", "côte d'ivoire", "cote d'ivoire",
+    "mauritania", "cameroon", "chad", "sudan", "south sudan",
+    "rwanda", "zambia", "zimbabwe", "somalia", "ethiopia",
+    "ecowas", "aec", "energy chamber", "lamu",
+)
+NON_NIGERIA_AFRICAN_COUNTRIES = (
+    "kenya", "angola", "mozambique", "south africa", "ivory coast",
+    "côte d'ivoire", "cote d'ivoire", "zimbabwe", "ghana", "senegal",
+    "namibia", "gabon", "congo", "uganda", "tanzania", "egypt", "libya", "algeria",
+)
+
+
 def classify_region(source_key: str, title: str, snippet: str | None = None) -> str:
     if source_key in {"nuprc", "nnpc"}:
         return "nigeria"
     text = f"{title} {snippet or ''}".lower()
+
+    if source_key == "african_energy_chamber":
+        # Nigeria-specific AEC stories classify as nigeria
+        if any(term in title.lower() for term in NIGERIA_TERMS):
+            return "nigeria"
+        if any(term in text for term in NIGERIA_TERMS) and not any(country in title.lower() for country in NON_NIGERIA_AFRICAN_COUNTRIES):
+            return "nigeria"
+        # Explicitly global / non-African stories classify as international
+        if not any(term in text for term in AFRICA_TERMS) and not any(term in text for term in NIGERIA_TERMS):
+            return "international"
+        # Default for AEC is africa
+        return "africa"
+
     if any(country in text for country in ("nigeria", "angola", "libya", "algeria", "africa", "ghana")):
         return "africa"
     return "international"
@@ -113,13 +147,13 @@ def classify_topic(source_key: str, title: str, snippet: str | None = None) -> s
         ("opec_policy", ("opec", "quota", "production cut")),
         ("nigeria_upstream", ("nuprc", "upstream", "oil licensing", "marginal field")),
         ("inventories", ("inventory", "inventories", "stockpile", "storage")),
-        ("refining", ("refinery", "refining", "refined product", "crack spread")),
+        ("refining", ("refinery", "refining", "refined product", "crack spread", "raffinerie")),
         ("downstream", ("fuel demand", "gasoline", "diesel", "jet fuel")),
         ("infrastructure", ("pipeline", "terminal", "port", "outage", "facility")),
-        ("regulation", ("regulator", "regulation", "compliance", "sanction")),
+        ("regulation", ("regulator", "regulation", "compliance", "sanction", "court order", "litigation")),
         ("geopolitics", ("war", "conflict", "shipping", "hormuz", "red sea")),
         ("demand", ("demand", "consumption", "economic growth")),
-        ("production", ("production", "output", "drilling")),
+        ("production", ("production", "output", "drilling", "exploration", "fid")),
         ("prices", ("price", "brent", "wti", "market")),
     )
     for topic, terms in ordered:

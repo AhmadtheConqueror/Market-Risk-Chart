@@ -14,6 +14,7 @@ from app.services.calculations import (
     to_float,
 )
 from app.services.market_ingestion import (
+    backfill_all_instruments,
     backfill_history,
     ingest_latest_market_data,
     upsert_observation,
@@ -22,6 +23,7 @@ from app.services.market_ingestion import (
 __all__ = [
     "PRODUCT_CONVERSIONS",
     "REFINED_PRODUCT_ORDER",
+    "backfill_all_instruments",
     "backfill_history",
     "calculate_all_product_spreads",
     "calculate_change",

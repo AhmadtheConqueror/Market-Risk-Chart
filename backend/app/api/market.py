@@ -23,9 +23,13 @@ from app.schemas.market import (
     NormalizedObservation,
 )
 from app.services.calculations import PRODUCT_CONVERSIONS
-from app.services.market_ingestion import ingest_latest_market_data
+from app.services.market_ingestion import (
+    backfill_all_instruments,
+    backfill_history,
+    ingest_latest_market_data,
+    upsert_observation,
+)
 from app.services.excel_ingestion import EXCEL_PROVIDER, ExcelValidationError, parse_market_workbook
-from app.services.market_ingestion import upsert_observation
 from app.services.source_resolution import get_source_policy, resolve_observations
 
 router = APIRouter(prefix="/market", tags=["market"])
@@ -169,6 +173,23 @@ async def refresh_market_data(db: Annotated[Session, Depends(get_db)]) -> Market
     """
     summary = await ingest_latest_market_data(db)
     return MarketRefreshResponse.model_validate(summary)
+
+
+@router.post("/backfill")
+async def backfill_market_history(
+    days: int = Query(90, ge=1, le=365, description="Number of days to backfill"),
+    period: str = Query("past_year", description="Historical period endpoint"),
+    instrument: str | None = Query(None, description="Optional specific instrument key"),
+    db: Annotated[Session, Depends(get_db)] = None,
+) -> dict[str, Any]:
+    """Backfills historical market data using past_year to ensure sufficient coverage for 90-day requests."""
+    if instrument:
+        inst_key = instrument.strip().lower()
+        inst = db.scalars(select(MarketInstrument).where(MarketInstrument.instrument_key == inst_key)).first()
+        if not inst:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Instrument '{instrument}' not found.")
+        return await backfill_history(db, inst, period=period, days=days)
+    return await backfill_all_instruments(db, period=period, days=days)
 
 
 @router.post("/import-excel", response_model=MarketImportSummary)

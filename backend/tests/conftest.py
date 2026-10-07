@@ -24,6 +24,7 @@ os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import create_app
+from app.models.calendar import CalendarEvent
 from app.models.market import MarketInstrument, MarketObservation
 from app.models.macro import MacroIndicator
 from app.models.risk import DashboardContent, RiskRegisterEntry

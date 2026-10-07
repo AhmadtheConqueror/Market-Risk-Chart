@@ -115,12 +115,12 @@ async def run_discovery() -> None:
         print("\n--- Step 7: Controlled historical backfill for Brent & WTI ---")
         brent_inst = session.scalars(select(MarketInstrument).where(MarketInstrument.instrument_key == "brent")).first()
         if brent_inst:
-            res_brent = await backfill_history(session, brent_inst, provider=provider, period="past_month")
+            res_brent = await backfill_history(session, brent_inst, provider=provider, period="past_year")
             print(f"  Brent backfill: {res_brent}")
 
         wti_inst = session.scalars(select(MarketInstrument).where(MarketInstrument.instrument_key == "wti")).first()
         if wti_inst:
-            res_wti = await backfill_history(session, wti_inst, provider=provider, period="past_month")
+            res_wti = await backfill_history(session, wti_inst, provider=provider, period="past_year")
             print(f"  WTI backfill: {res_wti}")
 
         # Count total stored observations

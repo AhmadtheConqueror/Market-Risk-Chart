@@ -78,6 +78,8 @@ class OilPriceAPIProvider(MarketDataProvider):
                     except Exception:
                         err_json = response.text
                     err_msg = f"OilPriceAPI request to '{endpoint}' failed with status {response.status_code}."
+                    if isinstance(err_json, dict) and "message" in err_json:
+                        err_msg = f"{err_msg} {err_json['message']}"
                     logger.warning(
                         "OilPriceAPI error: %s (status=%d)",
                         endpoint,
@@ -199,13 +201,44 @@ class OilPriceAPIProvider(MarketDataProvider):
 
         return results
 
-    async def get_history(self, symbol: str, days: int = 90, endpoint: str = "past_month") -> list[dict[str, Any]]:
+    @staticmethod
+    def resolve_history_endpoint(days: int = 90, endpoint: str | None = None) -> str:
+        """Determines the appropriate OilPriceAPI historical endpoint.
+
+        Supported historical endpoints on OilPriceAPI:
+          - 'past_week' (~7 calendar days)
+          - 'past_month' (~30 calendar days)
+          - 'past_year' (~365 calendar days)
+
+        For a 90-day request (or any window > 30 calendar days), 'past_year' must be
+        used so the response contains sufficient trading observations to satisfy
+        the 60-observation threshold for 90-day statistical calculations.
+        """
+        if endpoint and endpoint not in ("past_month", "past_week"):
+            return endpoint
+        if endpoint == "past_month" and days <= 30:
+            return "past_month"
+        if endpoint == "past_week" and days <= 7:
+            return "past_week"
+        if days > 30:
+            return "past_year"
+        if days > 7:
+            return "past_month"
+        return "past_week"
+
+    async def get_history(
+        self,
+        symbol: str,
+        days: int = 90,
+        endpoint: str | None = None,
+    ) -> list[dict[str, Any]]:
         """Retrieves historical prices from /v1/prices/{endpoint}?by_code=...
 
-        Common endpoints on OilPriceAPI: 'past_week', 'past_month', 'past_year'.
+        Uses 'past_year' for 90-day requests to guarantee sufficient historical coverage.
         """
+        resolved_endpoint = self.resolve_history_endpoint(days=days, endpoint=endpoint)
         retrieved_at = datetime.now(timezone.utc)
-        payload = await self._request(f"prices/{endpoint}", params={"by_code": symbol})
+        payload = await self._request(f"prices/{resolved_endpoint}", params={"by_code": symbol})
 
         data = payload.get("data")
         raw_items: list[dict[str, Any]] = []

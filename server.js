@@ -597,7 +597,7 @@ function updateRiskCategory(category, rating, userId) {
 }
 
 const FASTAPI_URL = process.env.FASTAPI_URL || "http://127.0.0.1:8000";
-const FASTAPI_ROUTES = ["/api/health", "/api/market", "/api/dashboard", "/api/macro", "/api/ai", "/api/news"];
+const FASTAPI_ROUTES = ["/api/health", "/api/market", "/api/dashboard", "/api/macro", "/api/ai", "/api/news", "/api/risk-register", "/api/calendar"];
 
 async function sendFastApiResponse(response, res) {
   res.status(response.status);

@@ -63,7 +63,7 @@
   <main class="dashboard-shell">
     <section id="briefing" class="dashboard-section">
       <div class="two-column-briefing">
-        <article class="panel">
+        <article class="panel trending-news-panel">
           <div class="section-head">
             <div>
               <h2>Trending News &amp; Market Watch</h2>
@@ -75,22 +75,29 @@
         </article>
 
         <article class="panel advisor-panel">
-          <div class="section-head dark">
+          <div class="section-head">
             <div>
               <h2>Risk Advisor's View</h2>
-              <p>Threats, opportunities and watch items</p>
+              <p>Strategic market interpretation, key risk alerts and tactical watchpoints</p>
             </div>
-            <div id="advisorActions" class="section-actions"></div>
+            <div class="advisor-header-actions">
+              <button id="advisorAIRefreshBtn" class="mini-button secondary" type="button" data-action="refresh-ai" title="Refresh AI interpretation">Refresh AI Analysis</button>
+              <div id="advisorActions" class="section-actions"></div>
+            </div>
           </div>
           <div id="riskAdvisorContent"></div>
+          <section class="advisor-ai-read" aria-labelledby="advisorAIHeading" aria-live="polite">
+            <h3 id="advisorAIHeading" class="visually-hidden">AI Market Read</h3>
+            <div id="advisorAIContent"></div>
+          </section>
         </article>
       </div>
 
       <article class="panel ai-analysis-panel" aria-live="polite">
         <div class="section-head ai-analysis-head">
           <div>
-            <h2>AI Dashboard Analysis</h2>
-            <p>Interpretation of the verified dashboard snapshot</p>
+            <h2>AI Briefing &amp; Data Quality</h2>
+            <p>Saved briefing, desk signals and data quality notes</p>
           </div>
           <div class="ai-analysis-actions">
             <span id="aiAnalysisGeneratedAt" class="ai-generated-at"></span>
@@ -161,11 +168,12 @@
       <div class="section-head">
         <div>
           <h2>Macro Drivers</h2>
-          <p>Prices, growth, activity and oil production context</p>
+          <p>Economic indicators relevant to market and trading risk</p>
         </div>
         <div id="macroActions" class="section-actions"></div>
       </div>
-      <div id="macroMetricGrid" class="macro-grid"></div>
+      <div id="macroTabs" class="macro-tabs" role="tablist" aria-label="Macro geography"></div>
+      <div id="macroMetricGrid" class="macro-grid" role="tabpanel" aria-labelledby="macroTab-nigeria" tabindex="0"></div>
       <article id="macroWhyItMatters" class="panel narrative-panel"></article>
     </section>
 
@@ -173,11 +181,14 @@
       <div class="section-head">
         <div>
           <h2>Pattern &amp; Inference</h2>
-          <p>Manual logic chain from indicator to trading implication</p>
+          <p>What the current data is collectively suggesting</p>
         </div>
         <div id="chainActions" class="section-actions"></div>
       </div>
-      <article id="inferenceContent" class="panel inference-panel"></article>
+      <article class="panel inference-panel" aria-live="polite">
+        <div id="aiPatternContent"></div>
+        <div id="inferenceContent"></div>
+      </article>
     </section>
 
     <section id="geo" class="dashboard-section">
@@ -222,7 +233,7 @@
 
       <article class="panel actions-panel">
         <div class="subsection-head">
-          <h3>Management Actions</h3>
+          <h3>Manual Management Notes</h3>
           <div id="managementActionsControls" class="section-actions"></div>
         </div>
         <div id="managementActionsContent" class="management-grid"></div>
@@ -233,11 +244,11 @@
       <div class="section-head">
         <div>
           <h2>Forward Calendar</h2>
-          <p>Market, economic, business and political events</p>
+          <p>Key dates that could affect markets, liquidity or operations</p>
         </div>
         <div id="calendarActions" class="section-actions"></div>
       </div>
-      <div id="forwardCalendarContent" class="calendar-grid"></div>
+      <div id="forwardCalendarContent" class="calendar-board" aria-live="polite"></div>
     </section>
 
     <section id="overall" class="dashboard-section">
@@ -257,17 +268,29 @@
               <small>Overall Risk</small>
             </div>
           </div>
-          <p id="overallRiskDriver" class="gauge-caption"></p>
+          <div class="overall-position-summary">
+            <h3>Overall Position</h3>
+            <p>Current rating: <strong id="overallPositionRating">Moderate</strong></p>
+            <p id="overallRiskDriver" class="gauge-caption"></p>
+            <div id="aiOverallPositionContent" aria-live="polite"></div>
+          </div>
         </article>
 
-        <article class="panel category-panel">
+        <article class="panel ai-management-panel" aria-labelledby="aiManagementHeading">
           <div class="subsection-head">
-            <h3>Risk by Category</h3>
-            <div id="categoryActions" class="section-actions"></div>
+            <h3 id="aiManagementHeading">Management Actions</h3>
           </div>
-          <div id="categoryRiskRows"></div>
+          <div id="aiManagementActionsContent" aria-live="polite"></div>
         </article>
       </div>
+
+      <article class="panel category-panel">
+        <div class="subsection-head">
+          <h3>Risk by Category</h3>
+          <div id="categoryActions" class="section-actions"></div>
+        </div>
+        <div id="categoryRiskRows"></div>
+      </article>
     </section>
   </main>
 
@@ -347,6 +370,7 @@
   <script src="js/services/excelImportUiService.js"></script>
   <script src="js/services/newsService.js"></script>
   <script src="js/services/aiService.js"></script>
+  <script src="js/services/calendarService.js"></script>
   <script src="risk-engine.js"></script>
   <script src="charts.js"></script>
   <script src="excel.js"></script>

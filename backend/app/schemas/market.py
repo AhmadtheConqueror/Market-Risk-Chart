@@ -94,6 +94,7 @@ class ProductSpreadItem(BaseModel):
     brent_price: float | None = None
     spread: float | None = None
     is_comparable: bool = False
+    conversion_method: str | None = None  # "mt_to_bbl" | "gallon_to_bbl"
 
 
 class MarketRefreshResponse(BaseModel):

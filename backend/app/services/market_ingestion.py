@@ -9,6 +9,7 @@ from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from app.models.market import MarketInstrument, MarketObservation
+from app.providers.base import MarketDataProvider
 from app.providers.market.factory import get_market_provider
 from app.providers.market.oilpriceapi import OilPriceAPIProvider
 from app.services.source_resolution import get_source_policy
@@ -191,10 +192,15 @@ async def ingest_latest_market_data(
 async def backfill_history(
     session: Session,
     instrument: MarketInstrument,
-    provider: OilPriceAPIProvider | None = None,
-    period: str = "past_month",
+    provider: MarketDataProvider | None = None,
+    period: str = "past_year",
+    days: int = 90,
 ) -> dict[str, Any]:
-    """Persists available historical records for an instrument from OilPriceAPI into Supabase."""
+    """Persists available historical records for an instrument from OilPriceAPI into Supabase.
+
+    Uses 'past_year' by default to ensure sufficient historical coverage (at least 60 observations)
+    for 90-day statistical calculations without lowering thresholds or blending sources.
+    """
     policy = get_source_policy(instrument.instrument_key)
     if policy and policy.preferred_provider != "oilpriceapi":
         return {
@@ -210,10 +216,14 @@ async def backfill_history(
     if provider is None:
         provider = get_market_provider()
 
+    effective_period = period
+    if hasattr(provider, "resolve_history_endpoint"):
+        effective_period = provider.resolve_history_endpoint(days=days, endpoint=period)
+
     try:
-        history_points = await provider.get_history(instrument.provider_symbol, endpoint=period)
+        history_points = await provider.get_history(instrument.provider_symbol, days=days, endpoint=effective_period)
     except Exception as exc:
-        logger.warning("History backfill failed for %s (%s): %s", instrument.instrument_key, period, exc)
+        logger.warning("History backfill failed for %s (%s): %s", instrument.instrument_key, effective_period, exc)
         return {"instrument": instrument.instrument_key, "stored": 0, "status": "failed", "error": str(exc)}
 
     stored_count = 0
@@ -229,9 +239,55 @@ async def backfill_history(
     return {
         "instrument": instrument.instrument_key,
         "symbol": instrument.provider_symbol,
-        "period": period,
+        "period": effective_period,
         "pointsReceived": len(history_points),
         "stored": stored_count,
         "updated": updated_count,
         "status": "success",
     }
+
+
+async def backfill_all_instruments(
+    session: Session,
+    provider: MarketDataProvider | None = None,
+    period: str = "past_year",
+    days: int = 90,
+) -> dict[str, Any]:
+    """Persists historical records for all enabled OilPriceAPI instruments using past_year."""
+    if provider is None:
+        provider = get_market_provider()
+
+    stmt = (
+        select(MarketInstrument)
+        .where(
+            MarketInstrument.enabled.is_(True),
+            MarketInstrument.provider_symbol.isnot(None),
+        )
+        .order_by(MarketInstrument.id)
+    )
+    instruments = [
+        inst
+        for inst in session.scalars(stmt).all()
+        if (policy := get_source_policy(inst.instrument_key)) is None
+        or policy.preferred_provider == "oilpriceapi"
+    ]
+
+    summary: dict[str, Any] = {
+        "provider": "oilpriceapi",
+        "period": period,
+        "days": days,
+        "requested": len(instruments),
+        "successful": 0,
+        "failed": 0,
+        "results": [],
+    }
+
+    for inst in instruments:
+        res = await backfill_history(session, inst, provider=provider, period=period, days=days)
+        summary["results"].append(res)
+        if res.get("status") == "success":
+            summary["successful"] += 1
+        else:
+            summary["failed"] += 1
+
+    return summary

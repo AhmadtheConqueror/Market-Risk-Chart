@@ -6,6 +6,7 @@ from datetime import date
 import pytest
 
 from app.services.calculations import (
+    GALLON_BASED_UNITS,
     PRODUCT_CONVERSIONS,
     REFINED_PRODUCT_ORDER,
     calculate_all_product_spreads,
@@ -17,7 +18,9 @@ from app.services.calculations import (
     calculate_sample_std_dev,
     calculate_z_score,
     calendar_window,
+    convert_gallon_to_bbl,
     convert_product_price,
+    is_gallon_unit,
     to_float,
 )
 
@@ -203,3 +206,61 @@ def test_calculate_all_product_spreads():
     gasoil_spread = next(s for s in spreads if s["instrument_id"] == "gasoil")
     assert math.isclose(gasoil_spread["converted_price"], 85.0)
     assert math.isclose(gasoil_spread["spread"], 10.0)
+
+
+def test_gallon_to_bbl_conversion():
+    assert math.isclose(convert_gallon_to_bbl(3.31), 3.31 * 42.0)
+    assert math.isclose(convert_gallon_to_bbl(4.35), 4.35 * 42.0)
+    assert convert_gallon_to_bbl(0.0) == 0.0
+    assert convert_gallon_to_bbl(-1.0) == -42.0
+    assert convert_gallon_to_bbl(None) is None
+    assert convert_gallon_to_bbl(float("nan")) is None
+    assert convert_gallon_to_bbl(float("inf")) is None
+
+
+def test_is_gallon_unit():
+    assert is_gallon_unit("gallon") is True
+    assert is_gallon_unit("USD/gallon") is True
+    assert is_gallon_unit("$/gal") is True
+    assert is_gallon_unit("gal") is True
+    assert is_gallon_unit("GALLON") is True
+    assert is_gallon_unit("metric_ton") is False
+    assert is_gallon_unit("tonne") is False
+    assert is_gallon_unit("USD/mt") is False
+    assert is_gallon_unit("barrel") is False
+    assert is_gallon_unit(None) is False
+    assert is_gallon_unit("") is False
+
+
+def test_calculate_all_product_spreads_with_gallon_and_mt_units():
+    latest_obs = {
+        "brent": {"value": 100.0, "assessment_date": "2026-09-30", "unit": "barrel"},
+        "naphtha": {"value": 890.0, "assessment_date": "2026-09-30", "unit": "metric_ton"},
+        "gasoil": {"value": 744.0, "assessment_date": "2026-09-30", "unit": "tonne"},
+        "gasoline": {"value": 3.00, "assessment_date": "2026-09-30", "unit": "gallon"},
+        "jet": {"value": 3.50, "assessment_date": "2026-09-30", "unit": "gallon"},
+    }
+
+    spreads = calculate_all_product_spreads(latest_obs)
+    assert [s["instrument_id"] for s in spreads] == REFINED_PRODUCT_ORDER
+
+    naphtha = next(s for s in spreads if s["instrument_id"] == "naphtha")
+    assert naphtha["conversion_method"] == "mt_to_bbl"
+    assert math.isclose(naphtha["converted_price"], 100.0)
+    assert math.isclose(naphtha["spread"], 0.0)
+
+    gasoil = next(s for s in spreads if s["instrument_id"] == "gasoil")
+    assert gasoil["conversion_method"] == "mt_to_bbl"
+    assert math.isclose(gasoil["converted_price"], 100.0)
+    assert math.isclose(gasoil["spread"], 0.0)
+
+    gasoline = next(s for s in spreads if s["instrument_id"] == "gasoline")
+    assert gasoline["conversion_method"] == "gallon_to_bbl"
+    assert math.isclose(gasoline["converted_price"], 126.0)  # 3.00 * 42
+    assert math.isclose(gasoline["spread"], 26.0)           # 126.0 - 100.0
+
+    jet = next(s for s in spreads if s["instrument_id"] == "jet")
+    assert jet["conversion_method"] == "gallon_to_bbl"
+    assert math.isclose(jet["converted_price"], 147.0)       # 3.50 * 42
+    assert math.isclose(jet["spread"], 47.0)                # 147.0 - 100.0
+

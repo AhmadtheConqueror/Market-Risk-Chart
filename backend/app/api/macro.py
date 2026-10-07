@@ -22,7 +22,7 @@ router = APIRouter(prefix="/macro", tags=["macro"])
 @router.post("/refresh", response_model=MacroRefreshSummary)
 async def refresh_macro(db: Annotated[Session, Depends(get_db)]) -> MacroRefreshSummary:
     """
-    Refresh all six macro indicators from official publisher sources:
+    Refresh all 18 Nigeria, USA and Global macro indicators from official publisher sources:
     - NBS: CPI (Headline, Food, Core Inflation) & Real GDP Growth
     - Stanbic IBTC Bank / S&P Global: PMI
     - NUPRC: Strict Crude Oil Production
@@ -41,7 +41,7 @@ async def refresh_macro(db: Annotated[Session, Depends(get_db)]) -> MacroRefresh
 @router.get("/latest", response_model=list[MacroIndicatorResponse])
 def get_latest_macro(db: Annotated[Session, Depends(get_db)]) -> list[MacroIndicatorResponse]:
     """
-    Retrieve the latest verified observation for each of the six canonical macro indicators.
+    Retrieve the latest verified observation for each of the 18 canonical macro indicators.
     """
     return get_latest_macro_indicators(db)
 
