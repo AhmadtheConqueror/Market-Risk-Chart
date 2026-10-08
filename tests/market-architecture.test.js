@@ -1212,6 +1212,8 @@ function createInterpretationHarness() {
     console, Date, Intl, structuredClone,
     document: { addEventListener() {}, getElementById: (id) => nodes[id] || null, querySelector: () => null, querySelectorAll: () => [] },
     OilRiskCalendarService: globalThis.OilRiskCalendarService,
+    OilRiskData: globalThis.OilRiskData,
+    OilRiskAIService: globalThis.OilRiskAIService,
     OilRiskConfig: { isApiMode: () => false }
   };
   context.window = context;
@@ -1243,6 +1245,13 @@ function createInterpretationHarness() {
       accept: acceptAIAnalysisResult,
       render: renderAIAnalysis,
       overall: renderOverallRisk,
+      categorySummary: buildCategoryRiskSummary,
+      riskContext: buildDashboardAIContext,
+      riskInit(data, stats, register = [], overrides = {}) {
+        activeDashboardData = data; enrichedDashboardData = data;
+        currentMarketStats = stats; riskRegisterRows = register;
+        categoryRiskOverrides = overrides;
+      },
       configure(data, manual = {}) {
         activeDashboardData = data;
         riskAdvisorItems = manual.advisor || [];
@@ -1347,7 +1356,7 @@ test("Advisor stays opposite news; Overall summary follows gauge with Actions as
   assert.match(briefing, /two-column-briefing[\s\S]*Trending News[\s\S]*advisor-panel[\s\S]*advisorAIContent/);
   const overall = html.slice(html.indexOf('<section id="overall"'), html.indexOf("</main>"));
   assert.match(overall, /overall-grid[\s\S]*overallGauge[\s\S]*overallPositionRating[\s\S]*aiOverallPositionContent[\s\S]*<\/article>\s*<article class="panel ai-management-panel"/);
-  assert.match(overall, /aiManagementActionsContent[\s\S]*<\/article>\s*<\/div>\s*<article class="panel category-panel"/);
+  assert.match(overall, /aiManagementActionsContent[\s\S]*<\/article>\s*<\/div>\s*<\/section>/);
   assert.match(html, /id="chain"[\s\S]*aiPatternContent/);
   assert.match(html, /id="aiRefreshButton"/);
 });
@@ -1763,4 +1772,76 @@ test("opening the existing macro editor returns to Nigeria and preserves its sep
   hooks.macroTab("usa");
   assert.match(nodes.macroTabs.innerHTML,/macroTab-nigeria[\s\S]*aria-selected="true"/);
   assert.equal((nodes.macroMetricGrid.innerHTML.match(/class="panel macro-card"/g)||[]).length,6);
+});
+
+
+function phase1RiskFixture() {
+  return {
+    data: {
+      categoryOrder: ["market", "macro", "company"],
+      categories: structuredClone(globalThis.dashboardData.categories),
+      riskSummary: {categories: {market: {rating: "Low"}, macro: {rating: "High"}, company: {rating: "Moderate"}}},
+      source: {}, marketObservations: []
+    },
+    // Current-reference ratings must emerge from the product stats and Risk Register.
+    stats: [{key:"brent",status:"Moderate"},{key:"wti",status:"Low"}],
+    register: [{materiality:"Catastrophic"}]
+  };
+}
+
+function triggerCountsFromMarkup(markup) {
+  return Object.fromEntries([...markup.matchAll(/(\d+) (Low|Moderate|High|Catastrophic)/g)].map(m=>[m[2],Number(m[1])]));
+}
+
+test("Phase 1 removes the category control, admin link and exclusive CSS without a residual panel", () => {
+  const {html}=createInterpretationHarness();
+  const source=fs.readFileSync(require.resolve("../dashboard.js"),"utf8");
+  const css=fs.readFileSync(require.resolve("../style.css"),"utf8");
+  assert.doesNotMatch(html,/Risk by Category|categoryRiskRows|categoryActions|category-panel|data-category-risk-select/);
+  assert.doesNotMatch(source,/renderCategoryRows|data-category-risk-select|section.id === "categories"|id: "categories"|Risk by Category|action === "open-section"/);
+  assert.doesNotMatch(css,/\.category-(?:panel|row|name)\b/);
+  assert.match(html,/aiManagementActionsContent[\s\S]*<\/article>\s*<\/div>\s*<\/section>/);
+});
+
+test("Phase 1 category architecture retains current ratings, weights, Overall Risk and Primary Driver", () => {
+  const {hooks,nodes}=createInterpretationHarness();const {data,stats,register}=phase1RiskFixture();
+  hooks.riskInit(data,stats,register);
+  const summary=hooks.categorySummary(data,stats);
+  assert.deepEqual(Object.fromEntries(Object.entries(summary.categories).map(([key,value])=>[key,value.rating])),{market:"Moderate",macro:"High",company:"Catastrophic"});
+  assert.deepEqual(Object.fromEntries(Object.entries(summary.categories).map(([key,value])=>[key,value.weight])),{market:1,macro:1.1,company:1});
+  hooks.overall(data,stats);
+  assert.equal(nodes.overallPositionRating.textContent,"High");
+  assert.equal(nodes.overallRiskLabel.textContent,"High");
+  assert.equal(nodes.overallGauge.dataset.rating,"high");
+  assert.equal(nodes.overallRiskDriver.textContent,"Primary driver: Company Exposures (Catastrophic)");
+  assert.deepEqual(triggerCountsFromMarkup(nodes.triggerCounts.innerHTML),{Low:0,Moderate:1,High:1,Catastrophic:1});
+  const context=hooks.riskContext();
+  assert.equal(context.overallRisk.score,3);assert.equal(context.overallRisk.rating,"High");
+  assert.equal(context.overallRisk.categories.company.rating,"Catastrophic");
+  assert.equal(context.overallRisk.categories.macro.rating,"High");
+  assert.equal(context.companyRisk.riskRegister[0].materiality,"Catastrophic");
+});
+
+test("Phase 1 triggers and Overall Risk recompute from changed categories rather than fixed reference values", () => {
+  const {hooks,nodes}=createInterpretationHarness();const {data,stats}=phase1RiskFixture();
+  data.riskSummary.categories.macro.rating="Low";
+  hooks.riskInit(data,stats,[{materiality:"Moderate"}]);hooks.overall(data,stats);
+  assert.deepEqual(triggerCountsFromMarkup(nodes.triggerCounts.innerHTML),{Low:1,Moderate:2,High:0,Catastrophic:0});
+  assert.equal(nodes.overallPositionRating.textContent,"Low"); // Existing weighted-score thresholds.
+  data.riskSummary.categories.macro.rating="Catastrophic";
+  hooks.overall(data,stats);
+  assert.deepEqual(triggerCountsFromMarkup(nodes.triggerCounts.innerHTML),{Low:0,Moderate:2,High:0,Catastrophic:1});
+  assert.equal(nodes.overallRiskDriver.textContent,"Primary driver: Macro/Geopolitical Risk (Catastrophic)");
+});
+
+test("Phase 1 preserves existing category overrides for calculation, triggers and AI context", () => {
+  const {hooks,nodes}=createInterpretationHarness();const {data,stats,register}=phase1RiskFixture();
+  hooks.riskInit(data,stats,register,{market:"High",company:"Moderate"});hooks.overall(data,stats);
+  const context=hooks.riskContext();
+  assert.equal(context.overallRisk.categories.market.rating,"High");
+  assert.equal(context.overallRisk.categories.company.rating,"Moderate");
+  assert.deepEqual(triggerCountsFromMarkup(nodes.triggerCounts.innerHTML),{Low:0,Moderate:1,High:2,Catastrophic:0});
+  const source=fs.readFileSync(require.resolve("../dashboard.js"),"utf8");
+  assert.match(source,/categoryOverrides: "daily-oil-trading-category-risk-overrides"/);
+  assert.match(source,/categoryRiskOverrides = loadCategoryRiskOverrides\(\)/);
 });

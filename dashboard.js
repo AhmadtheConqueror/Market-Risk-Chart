@@ -60,8 +60,7 @@
     geo: "#geo",
     register: "#company",
     actions: "#company",
-    calendar: "#calendar",
-    categories: "#overall"
+    calendar: "#calendar"
   };
   const EDITABLE_SECTIONS = [
     { id: "briefing", label: "Trending News & Market Watch", detail: "Verified regional energy headlines" },
@@ -72,8 +71,7 @@
     { id: "geo", label: "Geopolitical Risk", detail: "Jurisdiction ratings and implications" },
     { id: "register", label: "Risk Register", detail: "Rows, materiality, trend and owners" },
     { id: "actions", label: "Management Actions", detail: "Takeaways and recommended actions" },
-    { id: "calendar", label: "Forward Calendar", detail: "Market/economic and business/political events" },
-    { id: "categories", label: "Risk by Category", detail: "Overall-risk category selectors" }
+    { id: "calendar", label: "Forward Calendar", detail: "Market/economic and business/political events" }
   ];
 
   // Local-only gate for a portable static file. This is not secure server authentication.
@@ -596,12 +594,6 @@
     const action = button.dataset.action;
     const section = button.dataset.section || "";
 
-    if (action === "open-section") {
-      closeModal("adminPanelModal");
-      scrollToSection(button.dataset.target || SECTION_TARGETS[section]);
-      return;
-    }
-
     if (action === "macro-tab") {
       if (!editModes.macro && ["nigeria", "usa", "global"].includes(button.dataset.geography)) {
         macroGeography = button.dataset.geography;
@@ -659,22 +651,7 @@
       document.getElementById("calendarMonth")?.focus();
       return;
     }
-    const select = event.target.closest("[data-category-risk-select]");
 
-    if (!select || !isAdmin()) {
-      return;
-    }
-
-    const categoryId = select.dataset.categoryRiskSelect;
-    const rating = normalizeRiskRating(select.value);
-
-    if (!categoryId || !rating) {
-      return;
-    }
-
-    categoryRiskOverrides[categoryId] = rating;
-    saveJson(STORAGE_KEYS.categoryOverrides, categoryRiskOverrides);
-    renderDashboard(activeDashboardData);
   }
 
   function handleEditAction(action, button) {
@@ -2717,7 +2694,6 @@
       gauge.style.setProperty("--risk-angle", `${gaugeAngle(overallScore).toFixed(1)}deg`);
     }
 
-    renderCategoryRows(categorySummary.categories);
     const hasValidCategoryData = Boolean(
       data &&
       data.riskSummary &&
@@ -2763,29 +2739,6 @@
     return { categories };
   }
 
-  function renderCategoryRows(categories) {
-    const container = document.getElementById("categoryRiskRows");
-
-    if (!container) {
-      return;
-    }
-
-    container.innerHTML = Object.values(categories).map((category) => {
-      const rating = category.rating;
-
-      return `
-        <div class="category-row">
-          <span class="category-name"><span class="dot ${rating.toLowerCase()}"></span>${escapeHtml(category.name)}</span>
-          ${isAdmin()
-            ? `<select data-category-risk-select="${escapeAttribute(category.id)}">
-                ${RISK_SCALE.map((option) => `<option value="${option}"${option === rating ? " selected" : ""}>${option}</option>`).join("")}
-              </select>`
-            : `<span class="rating-pill rating-${rating.toLowerCase()}">${escapeHtml(rating)}</span>`}
-        </div>
-      `;
-    }).join("");
-  }
-
   function renderSectionActions(containerId, section, extraHtml) {
     const container = document.getElementById(containerId);
 
@@ -2811,11 +2764,6 @@
 
   function startEdit(section) {
     if (section === "briefing" && apiModeEnabled()) {
-      return;
-    }
-    if (section === "categories") {
-      closeModal("adminPanelModal");
-      scrollToSection(SECTION_TARGETS.categories);
       return;
     }
 
@@ -3066,11 +3014,11 @@
         <button
           class="admin-action-button"
           type="button"
-          data-action="${section.id === "categories" ? "open-section" : (isNewsSection ? "refresh-news" : "edit-section")}"
+          data-action="${isNewsSection ? "refresh-news" : "edit-section"}"
           data-section="${section.id}"
           data-target="${SECTION_TARGETS[section.id] || ""}"
         >
-          ${section.id === "categories" ? "Open" : (isNewsSection ? "Refresh" : "Edit")}
+          ${isNewsSection ? "Refresh" : "Edit"}
         </button>
       </div>
     `;
