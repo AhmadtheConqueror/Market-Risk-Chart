@@ -18,3 +18,5 @@ __all__ = [
     "NarrativeContent",
     "RiskRegisterEntry",
 ]
+
+from app.models.historical import HistoricalMarketObservation

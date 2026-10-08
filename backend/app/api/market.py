@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime, time, timedelta, timezone
-from time import perf_counter
 import logging
 from typing import Annotated
 
@@ -22,12 +21,11 @@ from app.schemas.market import (
     MarketRefreshResponse,
     NormalizedObservation,
 )
-from app.services.calculations import PRODUCT_CONVERSIONS
+from app.services.calculations import PRODUCT_CONVERSIONS, is_gallon_unit
 from app.services.market_ingestion import (
     backfill_all_instruments,
     backfill_history,
     ingest_latest_market_data,
-    upsert_observation,
 )
 from app.services.excel_ingestion import EXCEL_PROVIDER, ExcelValidationError, parse_market_workbook
 from app.services.source_resolution import get_source_policy, resolve_observations
@@ -41,7 +39,18 @@ logger.setLevel(logging.INFO)
 def observation_to_normalized(obs: MarketObservation, instrument_key: str) -> NormalizedObservation:
     val = float(obs.value)
     conversion_factor = PRODUCT_CONVERSIONS.get(instrument_key)
-    converted_val = (val / conversion_factor) if conversion_factor and conversion_factor > 0 else None
+    normalized_unit = obs.unit.lower().replace(" ", "")
+    if is_gallon_unit(obs.unit):
+        converted_val = val * 42
+        conversion_factor = None
+    elif normalized_unit in {"barrel", "bbl", "usd/bbl", "usd/barrel", "$/bbl"}:
+        converted_val = val
+        conversion_factor = None
+    elif normalized_unit in {"metric_ton", "tonne", "mt", "usd/mt", "usd/tonne", "usd/metricton", "$/mt"}:
+        converted_val = val / conversion_factor if conversion_factor else None
+    else:
+        converted_val = None
+        conversion_factor = None
 
     now = datetime.now(timezone.utc)
     ref_ts = obs.source_timestamp or obs.retrieved_at or obs.created_at
@@ -192,151 +201,48 @@ async def backfill_market_history(
     return await backfill_all_instruments(db, period=period, days=days)
 
 
+@router.get("/historical")
+def get_historical_analytics(db: Annotated[Session, Depends(get_db)]) -> dict[str, Any]:
+    from app.services.historical_market import historical_analytics
+    return historical_analytics(db)
+
+
 @router.post("/import-excel", response_model=MarketImportSummary)
 async def import_excel_market_data(
     workbook: UploadFile = File(...),
     db: Annotated[Session, Depends(get_db)] = None,
 ) -> MarketImportSummary:
-    total_started = perf_counter()
+    from app.services.historical_market import persist_history
     if not workbook.filename or not workbook.filename.lower().endswith(".xlsx"):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only .xlsx workbooks are accepted.")
-
+        raise HTTPException(status_code=400, detail="Only .xlsx workbooks are accepted.")
+    file_bytes = await workbook.read()
     try:
-        parse_started = perf_counter()
-        observations, summary = parse_market_workbook(await workbook.read())
-        parse_seconds = perf_counter() - parse_started
+        observations, summary = parse_market_workbook(file_bytes)
     except ExcelValidationError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-
-    instruments = {
-        instrument.instrument_key: instrument
-        for instrument in db.scalars(select(MarketInstrument).where(MarketInstrument.enabled.is_(True))).all()
-    }
-    # Keep existing instrument metadata aligned with the canonical source policy
-    # so an upload repairs stale/null Excel mappings without creating a fallback.
-    for instrument in instruments.values():
-        policy = get_source_policy(instrument.instrument_key)
-        if policy and policy.preferred_provider == EXCEL_PROVIDER:
-            instrument.provider = policy.preferred_provider
-            instrument.provider_symbol = policy.preferred_symbol
-
-    stored = updated = rejected = 0
-    errors = list(summary["errors"])
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     uploaded_at = datetime.now(timezone.utc)
-    affected: set[str] = set()
-    records: list[dict[str, object]] = []
-    record_keys: list[tuple[int, str, str, object]] = []
-
-    for item in observations:
-        instrument = instruments.get(item.instrument_key)
-        policy = get_source_policy(item.instrument_key)
-        if not instrument or not policy or policy.preferred_provider != EXCEL_PROVIDER:
-            rejected += 1
-            if len(errors) < 50:
-                errors.append(f"{item.provider_symbol}: no configured Excel source policy or instrument.")
-            continue
-
-        records.append({
-            "instrument_id": instrument.id,
-            "assessment_date": item.assessment_date,
-            "value": item.value,
-            "unit": item.unit,
-            "provider": EXCEL_PROVIDER,
-            "provider_symbol": item.provider_symbol,
-            "source_timestamp": datetime.combine(item.assessment_date, time.min, tzinfo=timezone.utc),
-            "retrieved_at": uploaded_at,
-            "benchmark_definition": item.benchmark_definition,
-        })
-        record_keys.append((instrument.id, EXCEL_PROVIDER, item.provider_symbol, item.assessment_date))
-        affected.add(item.instrument_key)
-
-    persistence_started = perf_counter()
-    if records:
-        existing_rows = db.scalars(
-            select(MarketObservation).where(
-                MarketObservation.provider == EXCEL_PROVIDER,
-                MarketObservation.provider_symbol.in_({key[2] for key in record_keys}),
-                MarketObservation.assessment_date.in_({key[3] for key in record_keys}),
-            )
-        ).all()
-        existing_keys = {
-            (row.instrument_id, row.provider, row.provider_symbol, row.assessment_date)
-            for row in existing_rows
-        }
-        stored = sum(key not in existing_keys for key in record_keys)
-        updated = sum(key in existing_keys for key in record_keys)
-
-        dialect_name = db.get_bind().dialect.name
-        if dialect_name == "postgresql":
-            insert_statement = postgresql_insert(MarketObservation)
-        elif dialect_name == "sqlite":
-            insert_statement = sqlite_insert(MarketObservation)
-        else:
-            insert_statement = None
-
-        if insert_statement is not None:
-            statement = insert_statement.values(records)
+    stored, updated = persist_history(db, observations, file_bytes, workbook.filename, uploaded_at)
+    # Forcados alone retains the approved current workbook-backed continuity.
+    instrument = db.scalars(select(MarketInstrument).where(MarketInstrument.instrument_key=="forcados", MarketInstrument.enabled.is_(True))).first()
+    if instrument:
+        instrument.provider = EXCEL_PROVIDER
+        instrument.provider_symbol = "PCABC00"
+        records = [{"instrument_id":instrument.id,"assessment_date":item.assessment_date,
+            "value":item.value,"unit":item.unit,"provider":EXCEL_PROVIDER,
+            "provider_symbol":item.provider_symbol,
+            "source_timestamp":datetime.combine(item.assessment_date,time.min,tzinfo=timezone.utc),
+            "retrieved_at":uploaded_at,"benchmark_definition":"Forcados FOB Nigeria"}
+            for item in observations if item.instrument_key=="forcados"]
+        insert = postgresql_insert if db.get_bind().dialect.name=="postgresql" else sqlite_insert
+        for offset in range(0,len(records),100):
+            statement = insert(MarketObservation).values(records[offset:offset+100])
             statement = statement.on_conflict_do_update(
-                index_elements=[
-                    "instrument_id",
-                    "provider",
-                    "provider_symbol",
-                    "assessment_date",
-                ],
-                set_={
-                    "value": statement.excluded.value,
-                    "unit": statement.excluded.unit,
-                    "source_timestamp": statement.excluded.source_timestamp,
-                    "retrieved_at": statement.excluded.retrieved_at,
-                    "benchmark_definition": statement.excluded.benchmark_definition,
-                },
-            )
+                index_elements=["instrument_id","provider","provider_symbol","assessment_date"],
+                set_={key:getattr(statement.excluded,key) for key in records[0]
+                    if key not in {"instrument_id","provider","provider_symbol","assessment_date"}})
             db.execute(statement)
-        else:
-            # Preserve the existing idempotent behavior for unsupported dialects.
-            stored = updated = 0
-            for item in observations:
-                instrument = instruments.get(item.instrument_key)
-                policy = get_source_policy(item.instrument_key)
-                if not instrument or not policy or policy.preferred_provider != EXCEL_PROVIDER:
-                    continue
-                _, action = upsert_observation(
-                    db,
-                    instrument,
-                    {
-                        "raw_value": item.value,
-                        "raw_unit": item.unit,
-                        "assessment_date": item.assessment_date,
-                        "provider": EXCEL_PROVIDER,
-                        "provider_symbol": item.provider_symbol,
-                        "source_timestamp": datetime.combine(item.assessment_date, time.min, tzinfo=timezone.utc),
-                        "retrieved_at": uploaded_at,
-                        "benchmark_definition": item.benchmark_definition,
-                    },
-                )
-                if action == "stored":
-                    stored += 1
-                elif action == "updated":
-                    updated += 1
-
     db.commit()
-    persistence_seconds = perf_counter() - persistence_started
-    total_seconds = perf_counter() - total_started
-    logger.warning(
-        "Excel import timings: rows=%d parse_seconds=%.3f persistence_seconds=%.3f total_seconds=%.3f",
-        len(observations),
-        parse_seconds,
-        persistence_seconds,
-        total_seconds,
-    )
-    return MarketImportSummary(
-        rows_read=summary["rows_read"],
-        rows_valid=summary["rows_valid"],
-        rows_stored=stored,
-        rows_updated=updated,
-        rows_rejected=summary["rows_rejected"] + rejected,
-        instruments_affected=sorted(affected),
-        date_range=summary["date_range"],
-        errors=errors,
-        uploaded_at=uploaded_at.isoformat(),
-    )
+    return MarketImportSummary(provider="platts_excel",rows_read=summary["rows_read"],rows_valid=summary["rows_valid"],
+        rows_stored=stored,rows_updated=updated,rows_rejected=summary["rows_rejected"],
+        instruments_affected=summary["instruments_affected"],date_range=summary["date_range"],
+        errors=summary["errors"],uploaded_at=uploaded_at.isoformat())

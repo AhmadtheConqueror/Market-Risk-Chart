@@ -55,10 +55,10 @@ def test_excel_parser_validates_dates_units_and_preserves_zero():
     observations, summary = parse_market_workbook(workbook_bytes())
 
     forcados = [item for item in observations if item.instrument_key == "forcados"]
-    assert forcados[0].value == 0
-    assert forcados[0].assessment_date == date(2026, 9, 10)
-    assert summary["rows_valid"] == 2
-    assert set(summary["instruments_affected"]) == {"forcados"}
+    assert forcados[-1].value == 0
+    assert forcados[-1].assessment_date == date(2026, 9, 10)
+    assert summary["rows_valid"] == 9
+    assert set(summary["instruments_affected"]) == {"forcados", "naphtha", "gasoil", "gasoline", "jet"}
 
 
 def test_excel_parser_rejects_missing_sheet_and_invalid_date():
@@ -66,7 +66,7 @@ def test_excel_parser_rejects_missing_sheet_and_invalid_date():
         parse_market_workbook(workbook_bytes(include_sheet=False))
 
     observations, summary = parse_market_workbook(workbook_bytes(invalid_date=True))
-    assert len(observations) == 1
+    assert len(observations) == 4
     assert summary["rows_rejected"] > 0
 
     workbook = Workbook()
@@ -155,9 +155,9 @@ def test_excel_import_resolves_forcados_as_excel_preferred(client, seed_test_dat
 
     assert response.status_code == 200, response.text
     payload = response.json()
-    assert payload["rows_stored"] == 2
-    assert payload["rows_rejected"] == 0
-    assert set(payload["instruments_affected"]) == {"forcados"}
+    assert payload["rows_stored"] == 9
+    assert payload["rows_rejected"] == 1
+    assert set(payload["instruments_affected"]) == {"forcados", "naphtha", "gasoil", "gasoline", "jet"}
 
     instrument = db_session.scalars(
         select(MarketInstrument).where(MarketInstrument.instrument_key == "forcados")
@@ -193,12 +193,12 @@ def test_excel_import_is_idempotent_and_selected_in_history(client, seed_test_da
     first = client.post("/api/market/import-excel", files=files)
     assert first.status_code == 200, first.text
     first_data = first.json()
-    assert first_data["provider"] == "internal_excel"
-    assert first_data["rows_stored"] == 2
+    assert first_data["provider"] == "platts_excel"
+    assert first_data["rows_stored"] == 9
 
     second = client.post("/api/market/import-excel", files=files)
     assert second.status_code == 200, second.text
-    assert second.json()["rows_updated"] == 2
+    assert second.json()["rows_updated"] == 9
     assert second.json()["rows_stored"] == 0
 
     history = client.get("/api/market/history?instrument=forcados&days=90")

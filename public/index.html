@@ -37,7 +37,7 @@
     <nav class="section-tabs" aria-label="Dashboard sections">
       <a href="#briefing">Trending News &amp; Market Watch</a>
       <a href="#market">Market Risk</a>
-      <a href="#spreads">Product Spreads</a>
+      <a href="#spreads">Crude &amp; Product Analytics</a>
       <a href="#macro">Macro Drivers</a>
       <a href="#geo">Geopolitical Risk</a>
       <a href="#company">Company Exposures</a>
@@ -129,16 +129,20 @@
       <div id="marketProductGrid" class="product-grid"></div>
 
       <div class="analytics-grid">
-        <article id="spreads" class="panel chart-panel large-chart-panel">
+        <article id="spreads" class="panel historical-analytics-panel">
           <div class="chart-title">
-            <div>
-              <h3>Product Spreads</h3>
-              <p>Refined Products vs Brent Futures</p>
-            </div>
+            <div><h3>Crude &amp; Product Analytics</h3><p>Platts historical assessments · separate from current API markets</p></div>
           </div>
-          <div class="chart-frame spread-frame">
-            <canvas id="crackChart"></canvas>
+          <div class="historical-controls">
+            <label for="historicalInstrument">Historical instrument</label>
+            <select id="historicalInstrument">
+              <option value="brent">Brent</option><option value="naphtha">Naphtha</option>
+              <option value="gasoil">Gasoil 0.1%S</option><option value="gasoline">Gasoline Prem 10ppmS</option>
+              <option value="forcados">Forcados</option><option value="wti">WTI</option><option value="jet">Jet Fuel</option>
+            </select>
+            <button id="historicalReload" class="admin-action-button secondary" type="button">Reload history</button>
           </div>
+          <div id="historicalAnalyticsContent" aria-live="polite"><p>Loading historical assessments…</p></div>
         </article>
 
         <article class="panel outlier-panel">
@@ -366,6 +370,7 @@
   <script src="risk-engine.js"></script>
   <script src="charts.js"></script>
   <script src="excel.js"></script>
+  <script src="historical-analytics.js"></script>
   <script src="dashboard.js"></script>
 </body>
 </html>

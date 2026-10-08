@@ -149,12 +149,17 @@
       ? observationFactor
       : configuredFactor;
     const originalPrice = latest.value;
-    const workbookConvertedPrice = Number(latest.convertedValue);
-    const convertedPrice = Number.isFinite(workbookConvertedPrice)
-      ? workbookConvertedPrice
-      : Number.isFinite(originalPrice) && Number.isFinite(barrelsPerMT) && barrelsPerMT > 0
-        ? originalPrice / barrelsPerMT
-        : NaN;
+    const workbookConvertedPrice = latest.convertedValue == null || latest.convertedValue === ""
+      ? NaN : Number(latest.convertedValue);
+    const unit = String(latest.unit || instrument.unit).toLowerCase().replace(/\s+/g, "");
+    let convertedPrice = NaN;
+    if (Number.isFinite(workbookConvertedPrice)) {
+      convertedPrice = workbookConvertedPrice;
+    } else if (Number.isFinite(originalPrice)) {
+      if (["gallon", "usd/gallon", "$/gal", "gal"].includes(unit)) convertedPrice = originalPrice * 42;
+      else if (["barrel", "bbl", "usd/bbl", "usd/barrel", "$/bbl"].includes(unit)) convertedPrice = originalPrice;
+      else if (["metric_ton", "tonne", "mt", "usd/mt", "usd/tonne", "usd/metricton", "$/mt"].includes(unit) && Number.isFinite(barrelsPerMT) && barrelsPerMT > 0) convertedPrice = originalPrice / barrelsPerMT;
+    }
     const isComparable = Number.isFinite(convertedPrice) && Number.isFinite(brentPrice);
 
     return {

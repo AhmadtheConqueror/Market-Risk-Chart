@@ -1845,3 +1845,45 @@ test("Phase 1 preserves existing category overrides for calculation, triggers an
   assert.match(source,/categoryOverrides: "daily-oil-trading-category-risk-overrides"/);
   assert.match(source,/categoryRiskOverrides = loadCategoryRiskOverrides\(\)/);
 });
+
+
+const path = require("node:path");
+require("../historical-analytics.js");
+test("historical analytics has seven instruments and one historical chart independent of live cards", () => {
+  const html = fs.readFileSync(path.join(__dirname, "../index.html"), "utf8");
+  assert.match(html, /Crude &amp; Product Analytics/);
+  assert.doesNotMatch(html, /id="crackChart"/);
+  const control = html.match(/<select id="historicalInstrument">([\s\S]*?)<\/select>/)[1];
+  assert.equal((control.match(/<option /g) || []).length, 7);
+  assert.match(html, /id="marketProductGrid"/);
+  assert.equal(fs.readFileSync(path.join(__dirname, "../historical-analytics.js"), "utf8"), fs.readFileSync(path.join(__dirname, "../public/historical-analytics.js"), "utf8"));
+});
+
+test("historical analytics never selects API observations and discloses stale data and native units", () => {
+  const service = globalThis.OilRiskHistoricalAnalytics;
+  const series = {instrument: "jet", provider: "platts_excel", label: "Platts Jet FOB NWE Cargo", latest: 1583, latest_date: "2026-09-10", freshness: "stale", unit: "USD/MT", symbol: "PJAAV00", observation_count: 428, count_30d: 21, count_90d: 63, factor: 7.7892, spread: 82.9201, change_1d: null, change_30d: 10, change_90d: 20, points: [{date: "2026-09-09", value: 1470}, {date: "2026-09-10", value: 1583}]};
+  assert.equal(service.selectSeries({instruments: [{...series, provider: "oilpriceapi"}]}, "jet"), undefined);
+  const html = service.markup(series);
+  assert.match(html, /STALE/); assert.match(html, /428 valid observations/); assert.match(html, /7.7892 bbl\/mt/);
+  assert.match(html, /82.92 USD\/bbl/); assert.match(html, /USD\/MT/);
+  assert.equal((html.match(/<svg /g) || []).length, 1);
+  assert.match(html, /1D change<\/span><strong>—/);
+  assert.match(service.markup({...series, latest: null}), /unavailable/);
+  assert.match(service.markup({...series, latest: 0}), /STALE/);
+  const chart = service.chart([{date: "2026-09-08", value: null}, {date: "2026-09-09", value: 0}, {date: "2026-09-10", value: 10}], "USD/MT");
+  assert.doesNotMatch(chart, /2026-09-08/); assert.match(chart, /2026-09-09/);
+});
+
+
+test("frontend API spread conversion routes native units without treating null converted values as zero", () => {
+  const date = "2026-09-10";
+  const brent = {instrumentId: "brent", assessmentDate: date, value: 100, unit: "USD/bbl"};
+  for (const [unit, value, expected] of [["USD/gallon", 2, 84], ["USD/bbl", 84, 84], ["USD/mt", 890, 100]]) {
+    const id = unit === "USD/mt" ? "naphtha" : "jet";
+    const result = OilRiskMarketCalculations.calculateProductSpreads([brent, {instrumentId: id, assessmentDate: date, value, unit, convertedValue: null}])[0];
+    assert.equal(result.convertedPrice, expected);
+    assert.equal(result.difference, expected - 100);
+  }
+  const unknown = OilRiskMarketCalculations.calculateProductSpreads([brent, {instrumentId: "jet", assessmentDate: date, value: 2, unit: "unknown", convertedValue: null}])[0];
+  assert.equal(unknown.isComparable, false);
+});
