@@ -3165,3 +3165,28 @@ textarea {
 @media (max-width: 600px) { .historical-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .historical-controls { align-items: stretch; } }
 
 @media (max-width: 600px) { .historical-chart text { font-size: 26px; } }
+
+/* Shipping Intelligence pilot: compact tables with local mobile scrolling. */
+.shipping-controls,.shipping-form { display:flex; flex-wrap:wrap; gap:12px; align-items:end; }
+.shipping-controls label,.shipping-form label { min-width:140px; flex:1; }
+.shipping-form[hidden] { display:none; }
+.shipping-form > p { flex-basis:100%; }
+.shipping-check { display:flex; align-items:center; gap:8px; }
+.shipping-check input { width:auto; }
+.shipping-scope-note { font-size:12px; color:var(--muted); }
+.shipping-metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; margin:16px 0; }
+.shipping-metrics > div { background:#fff; border:1px solid var(--line); border-radius:10px; padding:14px; }
+.shipping-metrics span,.shipping-metrics strong { display:block; }
+.shipping-metrics strong { font-size:17px; margin-top:6px; }
+.shipping-panel { padding:18px; margin-bottom:16px; min-width:0; }
+.shipping-panel h3 { margin-top:0; }
+.shipping-panel p { line-height:1.6; }
+.shipping-pair { display:grid; grid-template-columns:1fr; gap:0; min-width:0; }
+.shipping-table-wrap { overflow-x:auto; overflow-y:auto; max-height:420px; max-width:100%; }
+.shipping-table { width:100%; border-collapse:collapse; font-size:12px; }
+.shipping-table th,.shipping-table td { text-align:left; padding:10px; vertical-align:top; border-bottom:1px solid var(--line); min-width:80px; }
+.shipping-table th { color:var(--navy-900); }
+.shipping-warning { padding:12px; border-left:3px solid #d69b28; background:#fff8e8; }
+@media(max-width:700px) { .shipping-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); } .shipping-controls,.shipping-form { align-items:stretch; } .shipping-form label { flex-basis:100%; } }
+
+.shipping-table th { position:sticky; top:0; background:#fff; }

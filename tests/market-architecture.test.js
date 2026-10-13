@@ -1887,3 +1887,43 @@ test("frontend API spread conversion routes native units without treating null c
   const unknown = OilRiskMarketCalculations.calculateProductSpreads([brent, {instrumentId: "jet", assessmentDate: date, value: 2, unit: "unknown", convertedValue: null}])[0];
   assert.equal(unknown.isComparable, false);
 });
+
+
+require("../shipping.js");
+test("Shipping Intelligence has Current Watch, exceptions, regional activity, quality and watchlist without a map", () => {
+ const html=fs.readFileSync(path.join(__dirname,"../index.html"),"utf8");
+ for(const id of ["shipping","shippingSummary","shippingCurrentWatch","shippingExceptions","shippingRegionalActivity","shippingQuality","shippingWatchlist","shippingWatchForm"]) assert.match(html,new RegExp(`id="${id}"`));
+ assert.match(html,/Latin America, USA, UK and UAE are not monitored/);
+ assert.doesNotMatch(html, /shippingMap|aisstream.io.*script/);
+ for(const filename of ["shipping.js","index.html","style.css"]) assert.equal(fs.readFileSync(path.join(__dirname,"..",filename),"utf8"),fs.readFileSync(path.join(__dirname,"../public",filename),"utf8"));
+});
+
+test("shipping missing values stay absent, exact zero speeds survive, and yearless ETA is labelled", () => {
+ const service=OilRiskShipping;
+ const html=service.renderCurrent([{mmsi:"657106100",vessel_name:"<unsafe>",sog:0,cog:0,navigation_status:5,destination:null,eta_raw:null,last_seen:null,region:"niger_delta"}]);
+ assert.match(html,/0.0 kn/);assert.match(html,/0.0°/);assert.match(html,/—/);assert.doesNotMatch(html,/<unsafe>/);
+ assert.equal(service.eta(null),"—");
+ assert.equal(service.eta({Month:10,Day:13,Hour:0,Minute:0}),"10-13 00:00 · year unspecified");
+ assert.equal(service.elapsed("2026-10-13T12:00:01Z",Date.parse("2026-10-13T12:00:00Z")),0);
+});
+
+test("shipping offline/coverage states never imply zero maritime traffic", () => {
+ const service=OilRiskShipping;
+ const html=service.renderQuality({collection_status:"offline",collecting:false,vessels_observed_recently:0},[{label:"Lagos",vessels_observed:0}]);
+ assert.match(html,/not currently collecting/);assert.match(html,/No recent feed activity observed/);
+ assert.match(html,/does not prove absence of a vessel/);assert.match(html,/may be outdated/);
+ assert.match(service.renderCurrent([]),/does not mean zero vessel traffic/);
+ assert.match(service.renderEvents([]),/No active shipping exceptions/);
+});
+
+test("shipping responsive tables scroll locally and credentials stay server-side", () => {
+ const css=fs.readFileSync(path.join(__dirname,"../style.css"),"utf8");
+ assert.match(css,/shipping-table-wrap[^}]*overflow-x:auto/);
+ assert.match(css,/@media\(max-width:700px\).*shipping-metrics/s);
+ const js=fs.readFileSync(path.join(__dirname,"../shipping.js"),"utf8");
+ assert.doesNotMatch(js,/AISSTREAM_API_KEY|SHIPPING_ADMIN_TOKEN/);
+ assert.match(js,/\/api\/auth\/login/);
+ const server=fs.readFileSync(path.join(__dirname,"../server.js"),"utf8");
+ assert.match(server,/delete headers\["x-shipping-admin-token"\]/);
+ assert.match(server,/requireAdmin\(req, res, next\)/);
+});

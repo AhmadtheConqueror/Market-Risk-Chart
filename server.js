@@ -19,6 +19,11 @@ require("./excel.js");
 const PORT = Number(process.env.PORT || 3000);
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString("hex");
 const ROOT_DIR = __dirname;
+// Private server-to-server watchlist credential; never returned to the browser.
+let SHIPPING_ADMIN_TOKEN = process.env.SHIPPING_ADMIN_TOKEN || "";
+if (!SHIPPING_ADMIN_TOKEN) {
+  try { SHIPPING_ADMIN_TOKEN = require("dotenv").parse(fs.readFileSync(path.join(ROOT_DIR, "backend", ".env"))).SHIPPING_ADMIN_TOKEN || ""; } catch (_) {}
+}
 const PUBLIC_DIR = path.join(ROOT_DIR, "public");
 const DATABASE_DIR = path.join(ROOT_DIR, "database");
 const UPLOAD_DIR = path.join(ROOT_DIR, "uploads");
@@ -597,7 +602,7 @@ function updateRiskCategory(category, rating, userId) {
 }
 
 const FASTAPI_URL = process.env.FASTAPI_URL || "http://127.0.0.1:8000";
-const FASTAPI_ROUTES = ["/api/health", "/api/market", "/api/dashboard", "/api/macro", "/api/ai", "/api/news", "/api/risk-register", "/api/calendar"];
+const FASTAPI_ROUTES = ["/api/health", "/api/market", "/api/dashboard", "/api/macro", "/api/ai", "/api/news", "/api/risk-register", "/api/calendar", "/api/shipping"];
 
 async function sendFastApiResponse(response, res) {
   res.status(response.status);
@@ -656,6 +661,14 @@ app.use(session({
   }
 }));
 
+app.use("/api/shipping/watchlist", (req, res, next) => {
+  if (!["POST", "PUT", "DELETE"].includes(req.method)) return next();
+  if (req.get("origin") && req.get("origin") !== `${req.protocol}://${req.get("host")}`) {
+    return res.status(403).json({ error: "Watchlist changes require a same-origin request." });
+  }
+  return requireAdmin(req, res, next);
+});
+
 app.use(async (req, res, next) => {
   if (FASTAPI_ROUTES.some((prefix) => req.path === prefix || req.path.startsWith(prefix + "/"))) {
     try {
@@ -669,6 +682,10 @@ app.use(async (req, res, next) => {
       delete headers.te;
       delete headers.trailer;
       delete headers.upgrade;
+      delete headers["x-shipping-admin-token"];
+      if (req.path.startsWith("/api/shipping/watchlist") && ["POST", "PUT", "DELETE"].includes(req.method)) {
+        headers["x-shipping-admin-token"] = SHIPPING_ADMIN_TOKEN;
+      }
 
       const init = {
         method: req.method,

@@ -20,3 +20,5 @@ __all__ = [
 ]
 
 from app.models.historical import HistoricalMarketObservation
+
+from app.models.shipping import ShippingVessel, ShippingPosition, ShippingWatchlist, ShippingEvent, ShippingCollectorState

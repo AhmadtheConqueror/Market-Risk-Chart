@@ -157,6 +157,43 @@
       </div>
     </section>
 
+    <section id="shipping" class="dashboard-section">
+      <div class="section-head"><div><h2>Shipping Intelligence</h2><p>Africa pilot · AIS-reported observations across the Gulf of Guinea</p></div></div>
+      <div class="shipping-controls">
+        <label>Region <select id="shippingRegion"><option value="">Africa · wider Gulf pilot</option><option value="niger_delta">Niger Delta</option><option value="lagos">Lagos</option><option value="gulf_of_guinea">Wider Gulf of Guinea</option></select></label>
+        <label>Observation window <select id="shippingWindow"><option value="15">15 minutes</option><option value="60" selected>60 minutes</option><option value="180">3 hours</option></select></label>
+        <label>AIS vessel type <select id="shippingType"><option value="">All / unknown types included</option></select></label>
+        <button id="shippingReload" class="admin-action-button secondary" type="button">Refresh shipping</button>
+      </div>
+      <p class="shipping-scope-note">Latin America, USA, UK and UAE are not monitored in this pilot.</p>
+      <div id="shippingSummary" class="shipping-metrics" aria-live="polite"></div>
+      <div id="shippingCurrentWatch" class="panel shipping-panel"></div>
+      <div class="shipping-pair"><div id="shippingExceptions" class="panel shipping-panel"></div><div id="shippingRegionalActivity" class="panel shipping-panel"></div></div>
+      <div id="shippingQuality" class="panel shipping-panel"></div>
+      <div class="panel shipping-panel">
+        <h3>Watchlist</h3><p>Analyst-controlled MMSIs. Watching a vessel does not guarantee feed coverage.</p>
+        <div id="shippingWatchlist"></div>
+        <form id="shippingLogin" class="shipping-form">
+          <p>Sign in with an administrator account to manage the watchlist.</p>
+          <label>Username <input name="username" autocomplete="username" required></label>
+          <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
+          <button class="admin-action-button" type="submit">Sign in for watchlist</button>
+        </form>
+        <form id="shippingWatchForm" class="shipping-form" hidden>
+          <input name="entryId" type="hidden">
+          <label>MMSI <input name="mmsi" pattern="[1-9][0-9]{8}" maxlength="9" inputmode="numeric" required></label>
+          <label>Vessel name (optional) <input name="vessel_name" maxlength="120"></label>
+          <label>Reason (optional) <input name="reason" maxlength="400"></label>
+          <label>Priority <select name="priority"><option value="normal">Normal</option><option value="high">High</option></select></label>
+          <label class="shipping-check"><input name="active" type="checkbox" checked> Active</label>
+          <button class="admin-action-button" type="submit">Save watchlist entry</button>
+          <button id="shippingWatchCancel" class="admin-action-button secondary" type="button">Clear form</button>
+          <button id="shippingLogout" class="admin-action-button secondary" type="button">Sign out</button>
+        </form>
+        <p id="shippingAdminMessage" role="status" aria-live="polite"></p>
+      </div>
+    </section>
+
     <section id="desk" class="dashboard-section">
       <div class="section-head">
         <div>
@@ -371,6 +408,7 @@
   <script src="charts.js"></script>
   <script src="excel.js"></script>
   <script src="historical-analytics.js"></script>
+  <script src="shipping.js"></script>
   <script src="dashboard.js"></script>
 </body>
 </html>

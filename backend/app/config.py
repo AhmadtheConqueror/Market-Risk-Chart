@@ -3,7 +3,7 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import field_validator
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -27,6 +27,13 @@ class Settings(BaseSettings):
     oilpriceapi_key: str | None = None
     market_data_api_key: str | None = None
     market_data_base_url: str | None = None
+
+    aisstream_api_key: SecretStr | None = Field(None, exclude=True)
+    shipping_admin_token: SecretStr | None = Field(None, exclude=True)
+    shipping_retention_days: int = Field(7, ge=1, le=365)
+    shipping_stale_minutes: int = Field(15, ge=1, le=1440)
+    shipping_stationary_knots: float = Field(0.5, ge=0, le=5)
+    shipping_heartbeat_seconds: int = Field(45, ge=20, le=300)
 
     model_config = SettingsConfigDict(
         env_file=(BACKEND_DIR / ".env", PROJECT_ROOT / ".env"),

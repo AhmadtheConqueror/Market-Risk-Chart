@@ -93,6 +93,14 @@ test("Node proxy forwards workbook multipart stream and boundary unchanged", asy
     const newsResponse = await fetch(`http://127.0.0.1:${proxyPort}/api/news/latest`);
     assert.equal(newsResponse.status, 200);
     assert.deepEqual(await newsResponse.json(), { rows_read: 178, provider: "internal_excel" });
+    const blocked = await fetch(`http://127.0.0.1:${proxyPort}/api/shipping/watchlist`, {
+      method: "POST", headers: {"Content-Type": "application/json", "x-shipping-admin-token": "untrusted-client-token"},
+      body: JSON.stringify({mmsi:"657106100"})
+    });
+    assert.equal(blocked.status, 401, "Anonymous watchlist mutation must be stopped by the proxy");
+    const shipping = await fetch(`http://127.0.0.1:${proxyPort}/api/shipping/status`, {headers:{"x-shipping-admin-token":"untrusted-client-token"}});
+    assert.equal(shipping.status, 200);
+    assert.equal(forwardedRequest.headers["x-shipping-admin-token"], undefined, "Client-supplied private headers must be stripped");
   } finally {
     child.kill("SIGTERM");
     await new Promise((resolve) => child.once("exit", resolve));
