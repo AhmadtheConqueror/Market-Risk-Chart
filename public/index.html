@@ -196,6 +196,18 @@
 
     <section id="intelligence" class="dashboard-section">
       <div class="section-head"><div><h2>Market Intelligence Pulse</h2><p>Analyst-uploaded reports · source-linked findings for review</p></div></div>
+      <div class="panel intelligence-panel" id="intelligenceSynthesis">
+        <div class="intelligence-synthesis-controls">
+          <label>Synthesis window <select id="synthesisWindow"><option value="7">Last 7 days</option><option value="30">Last 30 days</option><option value="custom">Custom date range</option></select></label>
+          <label>From <input type="date" id="synthesisStart" disabled></label>
+          <label>To <input type="date" id="synthesisEnd" disabled></label>
+          <button type="button" id="synthesisRefresh" class="admin-action-button" hidden>Refresh Intelligence Pulse</button>
+        </div>
+        <p class="intelligence-note">Evidence from completed reports only. Report dates define the window; undated reports use their upload date and are disclosed. Refresh requires administrator sign-in.</p>
+        <p id="synthesisStatus" role="status" aria-live="polite"></p>
+        <div id="synthesisContent"></div>
+      </div>
+      <h3>Source Reports</h3>
       <div class="panel intelligence-panel">
         <h3>Upload intelligence report</h3><p>PDF, DOCX, XLSX, CSV or UTF-8 TXT · up to 20 MB. Originals are preserved. Analysis uses Gemini and requires analyst review.</p>
         <form id="intelligenceLogin" class="intelligence-form">

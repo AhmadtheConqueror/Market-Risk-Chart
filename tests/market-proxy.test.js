@@ -118,6 +118,8 @@ test("Node proxy forwards workbook multipart stream and boundary unchanged", asy
     assert.equal(blockedReport.status,401,"Document upload requires a server administrator session");
     const invalid=await fetch(`http://127.0.0.1:${proxyPort}/api/auth/login`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:"fixtureadmin",password:"incorrect"})});
     assert.equal(invalid.status,401);
+    const blockedSynthesis=await fetch(`http://127.0.0.1:${proxyPort}/api/intelligence/synthesis/refresh`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({window_start:"2026-10-01",window_end:"2026-10-14"})});
+    assert.equal(blockedSynthesis.status,401);
     const login=await fetch(`http://127.0.0.1:${proxyPort}/api/auth/login`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:"fixtureadmin",password})});
     assert.equal(login.status,200);
     const cookie=login.headers.get("set-cookie").split(";")[0];
@@ -126,6 +128,9 @@ test("Node proxy forwards workbook multipart stream and boundary unchanged", asy
     const watched=await fetch(`http://127.0.0.1:${proxyPort}/api/shipping/watchlist`,{method:"POST",headers:{cookie,"Content-Type":"application/json"},body:JSON.stringify({mmsi:"657106100"})});
     assert.equal(watched.status,200,"Same session authorizes Shipping admin actions");
     assert.ok(forwardedRequest.headers["x-shipping-admin-token"]);
+    const synthesis=await fetch(`http://127.0.0.1:${proxyPort}/api/intelligence/synthesis/refresh`,{method:"POST",headers:{cookie,"Content-Type":"application/json"},body:JSON.stringify({window_start:"2026-10-01",window_end:"2026-10-14"})});
+    assert.equal(synthesis.status,200);
+    assert.ok(forwardedRequest.headers["x-intelligence-admin-token"],"Synthesis uses the same private server credential");
     const report=new FormData();report.append("source_organisation","Other");report.append("title","Synthetic proxy fixture");report.append("report",new Blob(["synthetic-intelligence-bytes"],{type:"text/plain"}),"synthetic.txt");
     const reportResponse=await fetch(`http://127.0.0.1:${proxyPort}/api/intelligence/documents`,{method:"POST",headers:{cookie},body:report});
     assert.equal(reportResponse.status,200);

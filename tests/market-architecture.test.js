@@ -2011,3 +2011,71 @@ test("news refresh reports total provider failure even when stored rows can stil
   assert.match(fs.readFileSync(require.resolve('../shipping.js'),'utf8'),/Live AIS feed/);
   assert.match(fs.readFileSync(require.resolve('../shipping.js'),'utf8'),/Regional coverage/);
 });
+
+
+function synthesisFixture() {
+ const evidence=[{finding_id:101,document_id:1,source_organisation:"Argus",document_title:"Synthetic supply report",report_date:"2026-10-13",date_basis:"report_date",key_fact:"Synthetic oil supply assessment",source_locator:"TXT lines 1–2",confidence:"high"},{finding_id:102,document_id:2,source_organisation:"Kpler",document_title:"Synthetic second report",report_date:"2026-10-13",key_fact:"Synthetic second assessment",source_locator:"TXT lines 1–3",confidence:"medium"}];
+ return {available:true,data:{id:1,status:"completed",generated_at:"2026-10-14T10:00:00Z",window_start:"2026-10-08",window_end:"2026-10-14",model_version:"synthetic-model",metrics:{document_count:2,source_organisation_count:2,finding_count:2,finding_count_used:2},items:["what_changed","cross_source","divergence","watch_next"].map((kind,index)=>({id:index+1,synthesis_type:kind,title:"Synthetic "+kind,summary:"Supported synthetic assessment",commodity:"brent",geography:"global",direction:kind==="divergence"?"Divergent":"bullish",time_horizon:"near-term",confidence:"Medium",confidence_basis:{independent_claim_count:2,oldest_evidence_age_days:1},document_ids:[1,2],source_organisations:["Argus","Kpler"],finding_ids:[101,102],evidence}))},last_attempt:{status:"completed"}};
+}
+
+function synthesisHarness(fetcher) {
+ const vm=require("node:vm");
+ const nodes=Object.fromEntries(["synthesisWindow","synthesisStart","synthesisEnd","synthesisRefresh","synthesisStatus","synthesisContent"].map(id=>[id,{value:id==="synthesisWindow"?"7":"",disabled:false,hidden:false,textContent:"",innerHTML:""}]));
+ const context={Date,URLSearchParams,console,document:{readyState:"loading",addEventListener(){},getElementById:id=>nodes[id]},fetch:fetcher};context.window=context;
+ vm.runInNewContext(fs.readFileSync(require.resolve('../intelligence.js'),'utf8'),context);
+ const api=context.OilRiskIntelligence;api.setSynthesisWindow();return {api,nodes,context};
+}
+
+test("synthesis renders all four executive sections and evidence drill-down with publisher counts",()=>{
+ const html=OilRiskIntelligence.renderSynthesis(synthesisFixture());
+ for(const title of ["WHAT CHANGED","CROSS-SOURCE SIGNALS","DIVERGENCE","WATCH NEXT"])assert.match(html,new RegExp(title));
+ assert.equal((html.match(/class="intelligence-synthesis-card"/g)||[]).length,4);
+ assert.match(html,/<details class="intelligence-synthesis-evidence">/);assert.match(html,/Argus · Synthetic supply report/);assert.match(html,/Finding 101 · Document 1/);assert.match(html,/TXT lines 1–2/);assert.match(html,/Phase-1 confidence: high/);assert.match(html,/2 source organisations · 2 reports/);
+});
+
+test("synthesis empty, one-source, weak comparability and failed refresh states are explicit",()=>{
+ assert.match(OilRiskIntelligence.renderSynthesis(null),/Insufficient recent evidence/);
+ const f=synthesisFixture();f.data.items=[];f.data.metrics.single_source=true;f.data.metrics.omitted_candidates={insufficient_comparability:1};f.last_attempt={status:"failed"};
+ const html=OilRiskIntelligence.renderSynthesis(f);
+ for(const phrase of ["Only one source available","No cross-source signal established","No meaningful divergence detected","Insufficient comparability","Refresh failed","Previous supported synthesis is retained"])assert.ok(html.includes(phrase));
+});
+
+test("synthesis escapes source text and discloses changed evidence, upload-date fallback and bounds",()=>{
+ const f=synthesisFixture();f.data.stale=true;f.data.metrics.unknown_date_findings=1;f.data.metrics.truncated_findings=8;f.data.items[0].evidence[0].key_fact='<script>unsafe()</script>';
+ const html=OilRiskIntelligence.renderSynthesis(f);
+ assert.doesNotMatch(html,/<script>/);assert.match(html,/&lt;script&gt;/);assert.match(html,/Evidence changed since generation/);assert.match(html,/findings use upload dates/);assert.match(html,/disclosed subset/);
+});
+
+test("synthesis date windows cover seven and thirty inclusive days and validate custom ranges",()=>{
+ const {api,nodes}=synthesisHarness();
+ assert.equal((Date.parse(nodes.synthesisEnd.value)-Date.parse(nodes.synthesisStart.value))/86400000,6);
+ nodes.synthesisWindow.value="30";api.setSynthesisWindow();assert.equal((Date.parse(nodes.synthesisEnd.value)-Date.parse(nodes.synthesisStart.value))/86400000,29);
+ nodes.synthesisWindow.value="custom";api.setSynthesisWindow();assert.equal(nodes.synthesisStart.disabled,false);
+ nodes.synthesisStart.value="2026-10-14";nodes.synthesisEnd.value="2026-10-01";assert.throws(()=>api.synthesisScope(),/ordered date window/);
+ nodes.synthesisStart.value="2026-10-01";assert.equal(api.synthesisScope().window_start,"2026-10-01");
+});
+
+test("loading synthesis only reads saved results and never triggers Gemini refresh",async()=>{
+ const calls=[];const h=synthesisHarness(async(url,options)=>{calls.push({url,options});return {ok:true,json:async()=>synthesisFixture()};});
+ await h.api.loadSynthesis();assert.equal(calls.length,1);assert.match(calls[0].url,/synthesis\?window_start=/);assert.equal(calls[0].options.method,undefined);assert.match(h.nodes.synthesisContent.innerHTML,/WHAT CHANGED/);
+});
+
+test("explicit synthesis refresh posts scope, prevents duplicate clicks and reloads saved results",async()=>{
+ const calls=[];let finish;
+ const h=synthesisHarness(async(url,options)=>{calls.push({url,options});if(options.method==="POST")await new Promise(resolve=>{finish=resolve;});return {ok:true,json:async()=>synthesisFixture()};});
+ const pending=h.api.refreshSynthesis();assert.equal(h.nodes.synthesisRefresh.disabled,true);await h.api.refreshSynthesis();assert.equal(calls.length,1);
+ finish();await pending;assert.equal(calls.length,2);assert.equal(calls[0].options.method,"POST");assert.ok(JSON.parse(calls[0].options.body).window_start);assert.equal(h.nodes.synthesisRefresh.disabled,false);assert.equal(h.nodes.synthesisStatus.textContent,"Intelligence Pulse updated.");
+});
+
+test("failed synthesis refresh retains saved supported results and re-enables controls",async()=>{
+ const h=synthesisHarness(async(url,options)=>({ok:options.method!=="POST",status:503,json:async()=>synthesisFixture()}));
+ await h.api.refreshSynthesis();assert.match(h.nodes.synthesisStatus.textContent,/Refresh failed/);assert.match(h.nodes.synthesisContent.innerHTML,/Supported synthetic assessment/);assert.equal(h.nodes.synthesisRefresh.disabled,false);
+});
+
+test("synthesis UI has responsive grid, explicit refresh and synchronized assets",()=>{
+ const html=fs.readFileSync(require.resolve('../index.html'),'utf8'),css=fs.readFileSync(require.resolve('../style.css'),'utf8');
+ assert.ok(html.indexOf('id="intelligenceSynthesis"')<html.indexOf('id="intelligenceReports"'));
+ for(const id of ['synthesisWindow','synthesisStart','synthesisEnd','synthesisRefresh','synthesisStatus','synthesisContent'])assert.ok(html.includes(`id="${id}"`));
+ assert.match(css,/@media\(max-width:700px\).*intelligence-synthesis-grid[^}]*grid-template-columns:1fr/s);
+ for(const file of ['index.html','intelligence.js','style.css'])assert.equal(fs.readFileSync(path.join(__dirname,'..',file),'utf8'),fs.readFileSync(path.join(__dirname,'../public',file),'utf8'));
+});

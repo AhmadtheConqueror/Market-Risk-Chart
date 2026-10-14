@@ -3211,3 +3211,16 @@ textarea {
 .intelligence-warning { padding:12px; background:#fff8e8; border-left:3px solid #d69b28; }
 .intelligence-status { font-weight:700; }
 @media(max-width:700px) { .intelligence-form,.intelligence-filters { align-items:stretch; } .intelligence-form label,.intelligence-filters label { flex-basis:100%; } }
+
+/* Cross-document intelligence remains isolated from dashboard risk scoring. */
+.intelligence-synthesis-controls { display:flex; flex-wrap:wrap; gap:12px; align-items:end; }
+.intelligence-synthesis-controls label { flex:1; min-width:150px; }
+.intelligence-synthesis-controls button[hidden] { display:none; }
+.intelligence-synthesis-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
+.intelligence-synthesis-section { min-width:0; }
+.intelligence-synthesis-card { border:1px solid var(--line); border-radius:8px; padding:12px; margin:10px 0; overflow-wrap:anywhere; }
+.intelligence-synthesis-card h4 { margin:0 0 8px; }
+.intelligence-synthesis-card p { font-size:13px; line-height:1.6; }
+.intelligence-synthesis-evidence summary { cursor:pointer; font-weight:700; }
+.intelligence-synthesis-evidence blockquote { margin:8px 0; padding:10px; border-left:3px solid var(--navy-900); white-space:pre-wrap; }
+@media(max-width:700px) { .intelligence-synthesis-grid { grid-template-columns:1fr; } .intelligence-synthesis-controls { align-items:stretch; } .intelligence-synthesis-controls label { flex-basis:100%; } }

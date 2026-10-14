@@ -27,3 +27,6 @@ api_router.add_api_route("/risk-register", get_risk_register, methods=["GET"], r
 api_router.add_api_route("/risk-register", update_risk_register, methods=["PUT"], response_model=list[RiskRegisterItem], tags=["risk-register"])
 
 __all__ = ["api_router"]
+
+from app.api.synthesis import router as synthesis_router
+api_router.include_router(synthesis_router)

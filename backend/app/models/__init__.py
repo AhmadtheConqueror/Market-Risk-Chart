@@ -24,3 +24,5 @@ from app.models.historical import HistoricalMarketObservation
 from app.models.shipping import ShippingVessel, ShippingPosition, ShippingWatchlist, ShippingEvent, ShippingCollectorState
 
 from app.models.intelligence import IntelligenceDocument, IntelligenceChunk, IntelligenceFinding
+
+from app.models.synthesis import IntelligenceSynthesisRun, IntelligenceSynthesis, IntelligenceSynthesisEvidence

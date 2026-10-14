@@ -4,6 +4,7 @@ from collections.abc import Generator
 
 from fastapi import HTTPException, status
 from sqlalchemy import Engine, create_engine
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import get_settings
@@ -23,6 +24,10 @@ def get_engine() -> Engine:
 
     if _engine is None or _engine_url != database_url:
         connect_args = {"check_same_thread": False} if database_url.startswith("sqlite") else {}
+        url = make_url(database_url)
+        # Supabase transaction pooler does not support psycopg named statements.
+        if url.drivername == "postgresql+psycopg" and (url.host or "").endswith(".pooler.supabase.com") and url.port == 6543:
+            connect_args["prepare_threshold"] = None
         _engine = create_engine(
             database_url,
             pool_pre_ping=True,

@@ -121,6 +121,8 @@ async def process(db: Session,id,reprocess=False,extract_only=False,provider=Non
         if not isinstance(output,dict) or set(output)!={"findings"} or not isinstance(output["findings"],list) or len(output["findings"])>40: raise ValueError("Gemini returned malformed structured findings.")
         accepted,rejected=validate_findings(output,document,existing)
         # Replace findings only after successful validated analysis, in one transaction.
+        from app.services.synthesis import invalidate_document
+        invalidate_document(db,id)
         for previous in db.scalars(select(Finding).where(Finding.document_id==id)):
             db.delete(previous)
         db.flush()
@@ -148,6 +150,8 @@ def delete_document(db,id):
         started=document.processing_started_at
         if started and (now()-(started.replace(tzinfo=timezone.utc) if started.tzinfo is None else started)).total_seconds()<600: raise ProcessingConflict("Cannot delete a report while processing.")
     path=original_path(document)
+    from app.services.synthesis import invalidate_document
+    invalidate_document(db,id)
     db.execute(delete(Finding).where(Finding.document_id==id));db.execute(delete(Chunk).where(Chunk.document_id==id))
     db.delete(document);db.commit()
     # Originals are immutable until an analyst explicitly deletes the whole document.
