@@ -1220,6 +1220,11 @@ function createInterpretationHarness() {
   const source = fs.readFileSync(require.resolve("../dashboard.js"), "utf8").replace(
     "  global.OilRiskDashboard = {",
     `  global.__layoutTests = {
+      newsRefresh: handleNewsRefresh,
+      newsState() { return {items: newsItems, status: newsRefreshStatus, message: newsRefreshMessage}; },
+      loginPrepare() { renderDashboard = () => {}; openAdminPanel = () => {}; },
+      login: handleAdminLogin,
+      authenticated() { return isAdmin(); },
       calendarInit(value, month) {
         forwardCalendar = global.OilRiskCalendarService.normalize(value);
         calendarMonth = month;
@@ -1926,4 +1931,83 @@ test("shipping responsive tables scroll locally and credentials stay server-side
  const server=fs.readFileSync(path.join(__dirname,"../server.js"),"utf8");
  assert.match(server,/delete headers\["x-shipping-admin-token"\]/);
  assert.match(server,/requireAdmin\(req, res, next\)/);
+});
+
+
+require("../intelligence.js");
+test("Market Intelligence Pulse provides report upload, statuses, selected findings, source evidence and filters", () => {
+ const html=fs.readFileSync(path.join(__dirname,"../index.html"),"utf8");
+ for(const id of ["intelligence","intelligenceUpload","intelligenceReports","intelligenceSelected","intelligenceSource","intelligenceCommodity","intelligenceGeography","intelligenceSignal","intelligenceDirection","intelligenceDateFrom","intelligenceDateTo"]) assert.match(html,new RegExp(`id="${id}"`));
+ assert.match(html,/\.pdf,\.docx,\.xlsx,\.csv,\.txt/);
+ for(const file of ["index.html","style.css","intelligence.js"])assert.equal(fs.readFileSync(path.join(__dirname,"..",file),"utf8"),fs.readFileSync(path.join(__dirname,"../public",file),"utf8"));
+});
+
+test("intelligence findings expose exact evidence and locators without unsafe HTML or inferred report dates", () => {
+ const document={id:1,title:"Synthetic report",source_organisation:"Other",report_date:null,file_type:"TXT",processing_status:"completed",filename:"fixture.txt",chunk_count:1,finding_count:1,file_hash:"abc",chunks:[{source_locator:"TXT lines 1–2",text_content:"Brent 82"}]};
+ const finding={signal_type:"Price",direction:"bullish",commodity:"Brent",geography:"Nigeria",key_fact:"<unsafe> Brent 82",confidence:"low",source_locator:"TXT lines 1–2",evidence_excerpt:"Brent 82",relevant_numbers:["82"],risk_implication:"Review purchase costs",document_title:"Synthetic report"};
+ const rendered=OilRiskIntelligence.renderSelected(document,[finding]);
+ assert.match(rendered,/Source evidence/);assert.match(rendered,/TXT lines 1–2/);assert.match(rendered,/<blockquote>Brent 82<\/blockquote>/);
+ assert.doesNotMatch(rendered,/<unsafe>/);assert.match(rendered,/Report date: —/);assert.match(rendered,/not independent verification/);
+ assert.doesNotMatch(rendered,/data-report-process/);
+ assert.match(OilRiskIntelligence.renderSelected(document,[finding],true),/Reprocess report/);
+});
+
+test("intelligence filtering, empty states, failed states and processing status remain explicit", () => {
+ const rows=[{commodity:"Brent",geography:"Nigeria",signal_type:"Price",direction:"bullish"},{commodity:"WTI",geography:"USA",signal_type:"Supply",direction:"bearish"}];
+ assert.equal(OilRiskIntelligence.filterFindings(rows,{commodity:"Brent",direction:"bullish"}).length,1);
+ assert.equal(OilRiskIntelligence.filterFindings(rows,{geography:"UAE"}).length,0);
+ assert.match(OilRiskIntelligence.renderReports([]),/No reports uploaded/);
+ assert.match(OilRiskIntelligence.renderSelected(null,[]),/Select a report/);
+ const doc={id:1,title:"Synthetic",processing_status:"failed",file_type:"TXT",source_organisation:"Other",filename:"f.txt",chunk_count:1,finding_count:0,error_message:"Analysis failed",extraction_limitations:[],chunks:[]};
+ assert.match(OilRiskIntelligence.renderSelected(doc,[],true),/Retry processing/);
+ assert.match(OilRiskIntelligence.renderSelected(doc,[],true),/Original and extracted material remain available/);
+ assert.match(OilRiskIntelligence.renderSelected({...doc,processing_status:"analysing",error_message:null},[],true),/Processing report/);
+});
+
+test("intelligence layout remains responsive and has no Risk Advisor or cross-source integration", () => {
+ const css=fs.readFileSync(path.join(__dirname,"../style.css"),"utf8");assert.match(css,/intelligence-table-wrap[^}]*overflow:auto/);
+ assert.match(css,/@media\(max-width:700px\).*intelligence-form/s);
+ const js=fs.readFileSync(path.join(__dirname,"../intelligence.js"),"utf8");assert.doesNotMatch(js,/GEMINI_API_KEY|AISSTREAM_API_KEY|SHIPPING_ADMIN_TOKEN|RiskAdvisor|buildDashboardAIContext/);
+});
+
+
+test("administrator login uses the existing server session and rejects failed credentials", async () => {
+  const {hooks,nodes,context}=createInterpretationHarness();
+  context.OilRiskConfig.isApiMode=()=>true;
+  context.Event=Event; context.dispatchEvent=()=>{};
+  hooks.loginPrepare();nodes.adminUsername.value="configured-admin";nodes.adminPassword.value="wrong";
+  const calls=[];
+  context.fetch=async (url,options)=>{calls.push({url,options});return {ok:false,json:async()=>({error:"Invalid username or password."})};};
+  await hooks.login();assert.equal(hooks.authenticated(),false);assert.match(nodes.adminLoginMessage.textContent,/Invalid/);
+  nodes.adminPassword.value="synthetic-test-credential";
+  context.fetch=async (url,options)=>{calls.push({url,options});return {ok:true,json:async()=>({authenticated:true,role:"admin"})};};
+  await hooks.login();assert.equal(hooks.authenticated(),true);assert.equal(nodes.adminPassword.value,"");
+  assert.ok(calls.every(call=>call.url==="/api/auth/login" && call.options.credentials==="same-origin"));
+});
+
+function newsHarness(summary) {
+  const harness=createInterpretationHarness();harness.context.OilRiskConfig.isApiMode=()=>true;
+  const regions=[];
+  harness.context.OilRiskNewsService={refreshNews:async()=>summary,getLatestNews:async options=>{regions.push(options.region);return {items:options.region==="nigeria"?[{region:"nigeria",title:"Synthetic oil supply",published_at:new Date().toISOString(),url:"https://example.com/oil",source_name:"Fixture"}]:[]};}};
+  return {...harness,regions};
+}
+
+test("news refresh reports partial provider runs and loads each region independently", async()=>{
+  const h=newsHarness({sources_requested:5,sources_succeeded:5,failed:1,sources:[{status:"partial"}]});
+  await h.hooks.newsRefresh();assert.equal(h.hooks.newsState().status,"partial");assert.match(h.nodes.briefingActions.innerHTML,/Partial refresh/);
+  assert.deepEqual(h.regions,["international","africa","nigeria"]);assert.equal(h.hooks.newsState().items.length,1);
+});
+
+test("news refresh keeps prior stories and reports failed if loading refreshed rows fails",async()=>{
+  const h=newsHarness({sources_requested:5,sources_succeeded:5,failed:0,sources:[]});
+  await h.hooks.newsRefresh();assert.match(h.nodes.briefingActions.innerHTML,/Updated/);
+  h.context.OilRiskNewsService.getLatestNews=async()=>{throw Error("Synthetic read failure");};
+  await h.hooks.newsRefresh();assert.equal(h.hooks.newsState().status,"failed");assert.equal(h.hooks.newsState().items.length,1);assert.match(h.nodes.briefingActions.innerHTML,/News refresh failed/);
+});
+
+test("news refresh reports total provider failure even when stored rows can still load",async()=>{
+  const h=newsHarness({sources_requested:5,sources_succeeded:0,failed:5,sources:[]});
+  await h.hooks.newsRefresh();assert.equal(h.hooks.newsState().message,"Refresh failed");assert.equal(h.hooks.newsState().items.length,1);
+  assert.match(fs.readFileSync(require.resolve('../shipping.js'),'utf8'),/Live AIS feed/);
+  assert.match(fs.readFileSync(require.resolve('../shipping.js'),'utf8'),/Regional coverage/);
 });

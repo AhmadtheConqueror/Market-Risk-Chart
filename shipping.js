@@ -37,7 +37,7 @@
   }
   function renderQuality(status, regions) {
     const coverage = regions.filter(r=>!r.vessels_observed).map(r=>`${r.label}: No recent feed activity observed.`).join(" ");
-    return `<h3>Data Coverage &amp; Quality</h3><p>Provider: AISStream · Collection: <strong>${esc(status.collection_status)}</strong> · Latest message received: ${esc(since(status.latest_message_received))}</p>
+    return `<h3>Data Coverage &amp; Quality</h3><p>Provider: AISStream · Live AIS feed: <strong>${esc(status.collection_status)}</strong> · Latest message received: ${esc(since(status.latest_message_received))}</p>
       <p>Monitored: Gulf of Guinea pilot, including Niger Delta and Lagos. Over the last 60 minutes: ${status.vessels_observed_recently ?? 0} observed vessels; ${status.static_voyage_vessels ?? 0} with static/voyage context; ${status.destination_vessels ?? 0} with destination; ${status.eta_vessels ?? 0} with ETA; ${status.type_vessels ?? 0} with reported type.</p>
       ${!status.collecting ? '<p class="shipping-warning">Live shipping feed is not currently collecting. Stored observations remain visible with their last-seen times.</p>' : ""}
       ${coverage ? `<p class="shipping-warning">${esc(coverage)}</p>` : ""}
@@ -66,7 +66,7 @@
       const results=await Promise.all([request("/api/shipping/status"),request(`/api/shipping/vessels?${params}`),request("/api/shipping/events"),request(`/api/shipping/regions?minutes=${minutes}`),request("/api/shipping/watchlist")]);
       data={status:results[0],vessels:results[1],events:results[2],regions:results[3]}; watchlist=results[4];
       const auth=await request("/api/auth/status").catch(()=>({authenticated:false})); admin=auth.authenticated && auth.role==="admin";
-      document.getElementById("shippingSummary").innerHTML = [["Collection status",data.status.collection_status],["Vessels seen",data.vessels.length],["Watchlist alerts",data.status.watchlist_alerts],["Coverage",data.regions.find(r=>r.region===(selected||"gulf_of_guinea"))?.coverage || "Unknown"]].map(([label,value])=>`<div><span>${label}</span><strong>${esc(value)}</strong></div>`).join("");
+      document.getElementById("shippingSummary").innerHTML = [["Live AIS feed",data.status.collection_status],["Vessels seen",data.vessels.length],["Watchlist alerts",data.status.watchlist_alerts],["Regional coverage",data.regions.find(r=>r.region===(selected||"gulf_of_guinea"))?.coverage || "Unknown"]].map(([label,value])=>`<div><span>${label}</span><strong>${esc(value)}</strong></div>`).join("");
       document.getElementById("shippingCurrentWatch").innerHTML=renderCurrent(data.vessels);
       document.getElementById("shippingExceptions").innerHTML=renderEvents(data.events.filter(e=>!selected || selected==="gulf_of_guinea" || e.region===selected));
       document.getElementById("shippingRegionalActivity").innerHTML=renderRegions(data.regions);
@@ -77,7 +77,7 @@
       }
       renderWatchlist();
     } catch (_) {
-      document.getElementById("shippingSummary").innerHTML='<p class="shipping-warning">Shipping service unavailable. Collection status cannot be confirmed.</p>';
+      document.getElementById("shippingSummary").innerHTML='<p class="shipping-warning">Shipping service unavailable. Live AIS feed cannot be confirmed.</p>';
       if (data) document.getElementById("shippingQuality").innerHTML=renderQuality({...data.status,collecting:false,collection_status:"unconfirmed"},data.regions);
       else {
         document.getElementById("shippingCurrentWatch").innerHTML=renderCurrent([]);
@@ -94,7 +94,7 @@
     document.getElementById("shippingReload").addEventListener("click",load);
     document.getElementById("shippingLogin").addEventListener("submit",async event=>{
       event.preventDefault();const form=event.currentTarget;
-      try { await request("/api/auth/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:form.elements.username.value,password:form.elements.password.value})});form.elements.password.value="";message("Administrator signed in.");await load(); }
+      try { await request("/api/auth/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:form.elements.username.value,password:form.elements.password.value})});form.elements.password.value="";message("Administrator signed in.");global.dispatchEvent(new Event("administrator-session-changed"));await load(); }
       catch (_) {form.elements.password.value="";message("Administrator sign-in failed.");}
     });
     document.getElementById("shippingWatchForm").addEventListener("submit",async event=>{
@@ -104,12 +104,13 @@
       catch(error){message(error.message);}
     });
     document.getElementById("shippingWatchCancel").addEventListener("click",()=>{const f=document.getElementById("shippingWatchForm");f.reset();f.elements.entryId.value="";});
-    document.getElementById("shippingLogout").addEventListener("click",async()=>{await request("/api/auth/logout",{method:"POST"});message("Signed out.");await load();});
+    document.getElementById("shippingLogout").addEventListener("click",async()=>{await request("/api/auth/logout",{method:"POST"});message("Signed out.");global.dispatchEvent(new Event("administrator-session-changed"));await load();});
     document.getElementById("shippingWatchlist").addEventListener("click",async event=>{
       const edit=event.target.closest("[data-shipping-edit]"),remove=event.target.closest("[data-shipping-delete]");
       if(edit){const row=watchlist.find(w=>w.id===Number(edit.dataset.shippingEdit)), f=document.getElementById("shippingWatchForm").elements; if(row){f.entryId.value=row.id;for(const key of ["mmsi","vessel_name","reason","priority"])f[key].value=row[key]||"";f.active.checked=row.active;}}
       if(remove){try{await request('/api/shipping/watchlist/'+remove.dataset.shippingDelete,{method:"DELETE"});message("Watchlist entry removed.");await load();}catch(error){message(error.message);}}
     });
+    global.addEventListener("administrator-session-changed",load);
     load();setInterval(load,30000);
   }
   global.OilRiskShipping={elapsed,eta,renderCurrent,renderEvents,renderRegions,renderQuality,load};

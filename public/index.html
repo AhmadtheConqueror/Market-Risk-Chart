@@ -194,6 +194,37 @@
       </div>
     </section>
 
+    <section id="intelligence" class="dashboard-section">
+      <div class="section-head"><div><h2>Market Intelligence Pulse</h2><p>Analyst-uploaded reports · source-linked findings for review</p></div></div>
+      <div class="panel intelligence-panel">
+        <h3>Upload intelligence report</h3><p>PDF, DOCX, XLSX, CSV or UTF-8 TXT · up to 20 MB. Originals are preserved. Analysis uses Gemini and requires analyst review.</p>
+        <form id="intelligenceLogin" class="intelligence-form">
+          <label>Administrator username <input name="username" autocomplete="username" required></label>
+          <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
+          <button type="submit" class="admin-action-button">Sign in</button>
+        </form>
+        <form id="intelligenceUpload" class="intelligence-form" hidden>
+          <label>Source organisation <select name="source_organisation"><option>Argus</option><option>S&amp;P Global</option><option>Kpler</option><option>CSCS</option><option>Other</option></select></label>
+          <label>Report title <input name="title" maxlength="255" required></label>
+          <label>Report date (if known) <input name="report_date" type="date"></label>
+          <label>Original report <input name="report" type="file" accept=".pdf,.docx,.xlsx,.csv,.txt" required></label>
+          <button type="submit" class="admin-action-button">Upload report</button>
+        </form>
+        <p id="intelligenceMessage" role="status" aria-live="polite"></p>
+      </div>
+      <div class="intelligence-filters">
+        <label>Source <select id="intelligenceSource"><option value="">All sources</option><option>Argus</option><option>S&amp;P Global</option><option>Kpler</option><option>CSCS</option><option>Other</option></select></label>
+        <label>Report date from <input id="intelligenceDateFrom" type="date"></label>
+        <label>Report date to <input id="intelligenceDateTo" type="date"></label>
+        <label>Commodity <select id="intelligenceCommodity"><option value="">All commodities</option></select></label>
+        <label>Geography <select id="intelligenceGeography"><option value="">All geographies</option></select></label>
+        <label>Signal type <select id="intelligenceSignal"><option value="">All signals</option><option>Price</option><option>Supply</option><option>Demand</option><option>Refining</option><option>Inventory</option><option>Shipping/flows</option><option>OPEC+</option><option>Sanctions</option><option>Geopolitics</option><option>FX</option><option>Macro</option><option>Forecast</option><option>Maintenance/outage</option><option>Other</option></select></label>
+        <label>Direction <select id="intelligenceDirection"><option value="">All directions</option><option value="bullish">Bullish</option><option value="bearish">Bearish</option><option value="neutral">Neutral</option><option value="mixed">Mixed</option><option value="unclear">Unclear</option></select></label>
+      </div>
+      <div id="intelligenceReports" class="panel intelligence-panel"></div>
+      <div id="intelligenceSelected" class="panel intelligence-panel" aria-live="polite"></div>
+    </section>
+
     <section id="desk" class="dashboard-section">
       <div class="section-head">
         <div>
@@ -409,6 +440,7 @@
   <script src="excel.js"></script>
   <script src="historical-analytics.js"></script>
   <script src="shipping.js"></script>
+  <script src="intelligence.js"></script>
   <script src="dashboard.js"></script>
 </body>
 </html>

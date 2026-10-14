@@ -457,3 +457,77 @@ def test_aec_7day_filtering_and_gemini_context_inclusion(db_session):
     assert "published_at" in aec_entry
 
 
+
+
+def test_nnpc_nested_cards_keep_date_separate_from_title():
+    from app.providers.news.base import news_audit
+    html = """<a href="/insights/subsidy" class="featured-news"><div class="news-date">OCTOBER 9, 2026</div><div class="featured-news__desc">NNPC fuel discount update</div></a>
+    <div class="blog-body-wrapper news-block w-inline-block"><a href="/insights/report"><div><div class="news-block__text-block"><div class="news-date">OCTOBER 9, 2026</div><div class="news-block__desc">NNPC monthly report</div><div class="news-block-link"><div>read post</div></div></div></div></a></div>"""
+    audit = {"candidates": 0, "rejections": {}}
+    token = news_audit.set(audit)
+    try:
+        items = parse_html_news_list(html, source_key="nnpc", source_name="NNPC", base_url="https://www.nnpcgroup.com/")
+    finally:
+        news_audit.reset(token)
+    assert [item.title for item in items] == ["NNPC fuel discount update", "NNPC monthly report"]
+    assert all(item.published_at == datetime(2026, 10, 9, tzinfo=timezone.utc) for item in items)
+    assert audit["candidates"] == 2 and audit["rejections"] == {}
+
+
+@pytest.mark.anyio
+async def test_news_audit_retains_rejection_reasons_stale_counts_and_last_run(db_session, monkeypatch):
+    from app.providers.news.base import NewsProvider
+    from app.services.news_ingestion import get_last_news_refresh
+    class Provider(NewsProvider):
+        source_key = source_name = "eia"
+        async def fetch(self):
+            return parse_rss_items("""<rss><channel><item><title>Oil supply outlook</title><link>https://example.com/old-oil</link><pubDate>2020-01-01</pubDate></item><item><title>Oil undated</title><link>https://example.com/no-date</link></item></channel></rss>""", source_key="eia", source_name="EIA")
+    monkeypatch.setattr("app.services.news_ingestion.get_news_providers", lambda: [Provider()])
+    summary = await refresh_news(db_session)
+    result = summary.sources[0]
+    assert result.stored == 1 and result.fresh_items == 0 and result.excluded_stale == 1
+    assert result.rejected == 1 and result.rejection_reasons == {"missing_or_invalid_publication_date": 1}
+    assert get_recent_news(db_session) == []
+    assert get_last_news_refresh(db_session)["sources"][0]["excluded_stale"] == 1
+
+
+@pytest.mark.anyio
+async def test_news_persistence_failure_rolls_back_only_failed_source_and_dedupes(db_session, monkeypatch):
+    from dataclasses import replace
+    now = datetime.now(timezone.utc)
+    item = NormalizedNewsItem(source_key="eia",source_name="EIA",title="Oil supply",url="https://example.com/isolation",published_at=now)
+    good = FakeProvider("eia", [item, item])
+    bad = FakeProvider("nnpc", [replace(item, source_key="nnpc", url="https://example.com/broken")])
+    monkeypatch.setattr("app.services.news_ingestion.get_news_providers", lambda: [good, bad])
+    import app.services.news_ingestion as service
+    original = service.upsert_news_item
+    def broken(db, item, at):
+        action = original(db, item, at)
+        if item.source_key == "nnpc":
+            db.flush()
+            raise RuntimeError("Synthetic persistence failure")
+        return action
+    monkeypatch.setattr(service, "upsert_news_item", broken)
+    summary = await service.refresh_news(db_session)
+    assert summary.stored == 1 and summary.sources[0].duplicates == 1
+    assert summary.sources[1].status == "failed"
+    assert [row.url for row in db_session.query(NewsItem).all()] == [item.url]
+
+
+@pytest.mark.anyio
+async def test_empty_parser_and_failed_subfeed_are_not_reported_as_full_success(db_session, monkeypatch):
+    from app.providers.news.base import NewsProvider, news_audit
+    class Empty(NewsProvider):
+        source_key = source_name = "nnpc"
+        async def fetch(self):
+            return parse_html_news_list('<article><a href="https://example.com/oil">Oil update</a></article>', source_key="nnpc", source_name="NNPC", base_url="https://example.com")
+    class Partial(NewsProvider):
+        source_key = source_name = "eia"
+        async def fetch(self):
+            news_audit.get()["requests"].append({"url":"https://example.com/subfeed","attempted":True,"status":503,"error":"HTTPStatusError"})
+            return [NormalizedNewsItem(source_key="eia",source_name="EIA",title="Oil supply",url="https://example.com/fresh",published_at=datetime.now(timezone.utc))]
+    monkeypatch.setattr("app.services.news_ingestion.get_news_providers", lambda: [Empty(), Partial()])
+    summary = await refresh_news(db_session)
+    assert [r.status for r in summary.sources] == ["failed", "partial"]
+    assert summary.sources_succeeded == 1 and summary.failed == 2
+    assert len(get_recent_news(db_session)) == 1

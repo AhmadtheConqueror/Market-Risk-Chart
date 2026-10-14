@@ -16,18 +16,19 @@ require("./data.js");
 require("./risk-engine.js");
 require("./excel.js");
 
+const ROOT_DIR = __dirname;
+// Process environment > root .env > backend/.env; all features share the users table/session.
+require("dotenv").config({ path: path.join(ROOT_DIR, "backend", ".env"), quiet: true });
 const PORT = Number(process.env.PORT || 3000);
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString("hex");
-const ROOT_DIR = __dirname;
-// Private server-to-server watchlist credential; never returned to the browser.
-let SHIPPING_ADMIN_TOKEN = process.env.SHIPPING_ADMIN_TOKEN || "";
-if (!SHIPPING_ADMIN_TOKEN) {
-  try { SHIPPING_ADMIN_TOKEN = require("dotenv").parse(fs.readFileSync(path.join(ROOT_DIR, "backend", ".env"))).SHIPPING_ADMIN_TOKEN || ""; } catch (_) {}
-}
+const ADMIN_USERNAME = process.env.ADMIN_USERNAME || "riskadmin";
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "Password123";
+// Private server-to-server credential; never returned to the browser.
+const SHIPPING_ADMIN_TOKEN = process.env.SHIPPING_ADMIN_TOKEN || "";
 const PUBLIC_DIR = path.join(ROOT_DIR, "public");
 const DATABASE_DIR = path.join(ROOT_DIR, "database");
 const UPLOAD_DIR = path.join(ROOT_DIR, "uploads");
-const DB_PATH = path.join(DATABASE_DIR, "dashboard.db");
+const DB_PATH = process.env.DASHBOARD_DB_PATH || path.join(DATABASE_DIR, "dashboard.db");
 const ACTIVE_WORKBOOK = path.join(UPLOAD_DIR, "active-market-data.xlsx");
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 
@@ -185,17 +186,25 @@ function initDatabase() {
 }
 
 async function seedAdminUser() {
-  const row = db.prepare("SELECT COUNT(*) AS count FROM users WHERE username = ?").get("admin");
-
-  if (row.count > 0) {
+  let user = db.prepare("SELECT * FROM users WHERE username = ?").get(ADMIN_USERNAME);
+  // Repair the original seeded username without replacing an operator-managed password.
+  if (!user) {
+    const legacy = db.prepare("SELECT * FROM users WHERE username = ? AND role = 'admin'").get("admin");
+    if (legacy) {
+      db.prepare("UPDATE users SET username = ? WHERE id = ?").run(ADMIN_USERNAME, legacy.id);
+      user = { ...legacy, username: ADMIN_USERNAME };
+    }
+  }
+  if (user) {
+    if (process.env.ADMIN_PASSWORD && !await bcrypt.compare(ADMIN_PASSWORD, user.password_hash)) {
+      db.prepare("UPDATE users SET password_hash = ? WHERE id = ? AND role = 'admin'")
+        .run(await bcrypt.hash(ADMIN_PASSWORD, 12), user.id);
+    }
     return;
   }
-
-  const hash = await bcrypt.hash("Password123", 12);
-  db.prepare(`
-    INSERT INTO users (username, password_hash, role, created_at)
-    VALUES (?, ?, ?, ?)
-  `).run("admin", hash, "admin", nowIso());
+  const hash = await bcrypt.hash(ADMIN_PASSWORD, 12);
+  db.prepare("INSERT INTO users (username, password_hash, role, created_at) VALUES (?, ?, ?, ?)")
+    .run(ADMIN_USERNAME, hash, "admin", nowIso());
 }
 
 function seedEditableContent() {
@@ -602,7 +611,7 @@ function updateRiskCategory(category, rating, userId) {
 }
 
 const FASTAPI_URL = process.env.FASTAPI_URL || "http://127.0.0.1:8000";
-const FASTAPI_ROUTES = ["/api/health", "/api/market", "/api/dashboard", "/api/macro", "/api/ai", "/api/news", "/api/risk-register", "/api/calendar", "/api/shipping"];
+const FASTAPI_ROUTES = ["/api/health", "/api/market", "/api/dashboard", "/api/macro", "/api/ai", "/api/news", "/api/risk-register", "/api/calendar", "/api/shipping", "/api/intelligence"];
 
 async function sendFastApiResponse(response, res) {
   res.status(response.status);
@@ -614,7 +623,7 @@ async function sendFastApiResponse(response, res) {
     }
   });
 
-  res.send(await response.text());
+  res.send(Buffer.from(await response.arrayBuffer()));
 }
 
 // Register this before body parsers so the browser's multipart stream and boundary
@@ -661,6 +670,23 @@ app.use(session({
   }
 }));
 
+// Intelligence multipart uploads retain their boundary; never stringify file bytes.
+app.use("/api/intelligence", (req,res,next) => {
+  const protectedRequest = ["POST","DELETE"].includes(req.method) || /\/original$/.test(req.path);
+  if (!protectedRequest) return next();
+  if (req.get("origin") && req.get("origin") !== `${req.protocol}://${req.get("host")}`) return res.status(403).json({error:"Same-origin administrator request required."});
+  return requireAdmin(req,res,next);
+});
+app.post("/api/intelligence/documents", async (req,res) => {
+  try {
+    const headers={...req.headers};
+    for (const name of ["host","connection","keep-alive","transfer-encoding","x-shipping-admin-token","x-intelligence-admin-token"]) delete headers[name];
+    headers["x-intelligence-admin-token"]=SHIPPING_ADMIN_TOKEN;
+    const response=await fetch(new URL(req.originalUrl,FASTAPI_URL),{method:"POST",headers,body:req,duplex:"half"});
+    await sendFastApiResponse(response,res);
+  } catch (_) {res.status(503).json({error:"INTELLIGENCE_UNAVAILABLE",message:"Document upload service is unavailable."});}
+});
+
 app.use("/api/shipping/watchlist", (req, res, next) => {
   if (!["POST", "PUT", "DELETE"].includes(req.method)) return next();
   if (req.get("origin") && req.get("origin") !== `${req.protocol}://${req.get("host")}`) {
@@ -683,6 +709,10 @@ app.use(async (req, res, next) => {
       delete headers.trailer;
       delete headers.upgrade;
       delete headers["x-shipping-admin-token"];
+      delete headers["x-intelligence-admin-token"];
+      if (req.path.startsWith("/api/intelligence") && (["POST","DELETE"].includes(req.method) || /\/original$/.test(req.path))) {
+        headers["x-intelligence-admin-token"]=SHIPPING_ADMIN_TOKEN;
+      }
       if (req.path.startsWith("/api/shipping/watchlist") && ["POST", "PUT", "DELETE"].includes(req.method)) {
         headers["x-shipping-admin-token"] = SHIPPING_ADMIN_TOKEN;
       }

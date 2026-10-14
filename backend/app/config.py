@@ -28,6 +28,11 @@ class Settings(BaseSettings):
     market_data_api_key: str | None = None
     market_data_base_url: str | None = None
 
+    intelligence_storage_dir: str | None = None
+    intelligence_max_upload_mb: int = Field(20, ge=1, le=50)
+    intelligence_max_chunks: int = Field(60, ge=1, le=200)
+    intelligence_max_extracted_chars: int = Field(120000, ge=1000, le=1000000)
+
     aisstream_api_key: SecretStr | None = Field(None, exclude=True)
     shipping_admin_token: SecretStr | None = Field(None, exclude=True)
     shipping_retention_days: int = Field(7, ge=1, le=365)

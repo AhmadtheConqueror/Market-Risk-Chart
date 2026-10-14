@@ -30,7 +30,7 @@ mixing is allowed. Re-uploading the same workbook is idempotent.
 ## Automated Energy News
 
 The Admin/news flow uses only whitelisted official sources: EIA RSS, OPEC,
-NUPRC and NNPC Limited. `POST /api/news/refresh` stores validated headlines,
+NUPRC, NNPC Limited and African Energy Chamber. `POST /api/news/refresh` stores validated headlines,
 external URLs, publication times, short excerpts, regions and restrained
 topics in Supabase. Repeated URLs are idempotent, stale stories remain stored
 for audit history but are excluded from the seven-day dashboard feed, and a
@@ -38,6 +38,14 @@ failed source does not block successful sources.
 
 API mode renders the verified International, Africa and Nigeria news groups
 from `GET /api/news/latest`; it does not use the local demo/manual briefing.
+Each region requests its own three most recent qualifying stories. The seven-day
+publication window is unchanged. Refresh status remains visible as Updated,
+Partial refresh or Refresh failed, including after reload. `last_refresh` on
+`GET /api/news/latest` exposes the most recent provider audit: attempted requests,
+HTTP/cache headers, candidate/rejection counts and reasons, publication dates,
+stale exclusions and stored/updated/unchanged counts. The audit is retained in
+an inactive `dashboard_content` operational record, excluded from dashboard/AI
+narratives; no new table or migration is needed.
 The separate **Refresh AI Analysis** action passes at most 20 recent news
 records to Gemini as attributed context. Full article bodies are never stored
 or sent to Gemini.
@@ -69,6 +77,14 @@ Use the `Admin` button in the footer.
 Username: riskadmin
 Password: Password123
 ```
+
+The API dashboard, Intelligence Pulse and Shipping administration use the same proxy
+`users` table and server session. Optional `ADMIN_USERNAME` / `ADMIN_PASSWORD` override
+the bootstrap account; precedence is process environment, root `.env`, then
+`backend/.env`. Without overrides, the documented bootstrap account above applies;
+an existing customized database password is retained. `SHIPPING_ADMIN_TOKEN` is a
+separate private proxy-to-backend credential, never a browser login password.
+Restart the Node proxy after changing credential configuration.
 
 Excel upload is available only in Admin Mode:
 

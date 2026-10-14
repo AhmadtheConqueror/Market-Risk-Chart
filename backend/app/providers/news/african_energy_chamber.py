@@ -4,6 +4,8 @@ import re
 from urllib.parse import urljoin
 
 from app.providers.news.base import (
+    audit_candidate,
+    reject_reason,
     NewsProvider,
     NormalizedNewsItem,
     classify_region,
@@ -113,11 +115,11 @@ class AfricanEnergyChamberNewsProvider(NewsProvider):
             raw_date = clean_text(date_m.group(1) if date_m else "")
             published_at = parse_news_datetime(raw_date) if raw_date else None
 
-            if not title or not url or not is_valid_url(url) or not published_at:
-                continue
+            reason = reject_reason(title=title, url=url, published_at=published_at, snippet=snippet)
             if url in seen_urls:
-                continue
-            if not energy_relevant(title, snippet):
+                reason = "duplicate_url"
+            audit_candidate(reason, published_at)
+            if reason:
                 continue
 
             seen_urls.add(url)

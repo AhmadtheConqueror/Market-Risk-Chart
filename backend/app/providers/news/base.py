@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextvars import ContextVar
 import html
 import re
 from abc import ABC, abstractmethod
@@ -12,6 +13,34 @@ from urllib.parse import urljoin, urlparse
 import xml.etree.ElementTree as ET
 
 import httpx
+
+
+# One refresh task owns its audit; no credentials or response bodies are retained.
+news_audit: ContextVar[dict | None] = ContextVar("news_audit", default=None)
+
+
+def reject_reason(*, title, url, published_at, snippet=None):
+    if not title:
+        return "missing_title"
+    if not is_valid_url(url):
+        return "invalid_url"
+    if not published_at:
+        return "missing_or_invalid_publication_date"
+    if not energy_relevant(title, snippet):
+        return "not_energy_relevant"
+    return None
+
+
+def audit_candidate(reason=None, published_at=None):
+    audit = news_audit.get()
+    if audit is not None:
+        if published_at is not None:
+            previous = audit.get("latest_source_publication")
+            audit["latest_source_publication"] = max(previous, published_at) if previous else published_at
+        audit["candidates"] = audit.get("candidates", 0) + 1
+        if reason:
+            reasons = audit.setdefault("rejections", {})
+            reasons[reason] = reasons.get(reason, 0) + 1
 
 
 REGIONS = {"international", "africa", "nigeria"}
@@ -91,7 +120,7 @@ def is_valid_url(value: str) -> bool:
 def energy_relevant(title: str, snippet: str | None = None) -> bool:
     text = f"{title} {snippet or ''}".lower()
     keywords = (
-        "oil", "crude", "petroleum", "energy", "opec", "refin", "fuel", "gas", "gasoline",
+        "nnpc", "nuprc", "oil", "crude", "petroleum", "energy", "opec", "refin", "fuel", "gas", "gasoline",
         "diesel", "lng", "production", "inventory", "barrel", "pipeline", "upstream",
         "downstream", "supply", "demand", "sanction", "offshore", "terminal",
     )
@@ -190,7 +219,9 @@ def parse_rss_items(
             values.get("pubdate") or values.get("published") or values.get("updated") or values.get("date")
         )
         snippet = clean_text(values.get("description") or values.get("summary") or values.get("content"), 600)
-        if title and url and is_valid_url(url) and published_at and energy_relevant(title, snippet):
+        reason = reject_reason(title=title, url=url, published_at=published_at, snippet=snippet)
+        audit_candidate(reason, published_at)
+        if reason is None:
             items.append(NormalizedNewsItem(
                 source_key=source_key,
                 source_name=source_name,
@@ -218,6 +249,7 @@ class _HTMLNewsListParser(HTMLParser):
         self.block_depth = 0
         self.block_tag: str | None = None
         self.capture: str | None = None
+        self.capture_depth = 0
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         attrs_dict = dict(attrs)
@@ -247,7 +279,7 @@ class _HTMLNewsListParser(HTMLParser):
                 self.capture = "title"
         elif tag == "time":
             self.block["published"] = attrs_dict.get("datetime") or ""
-            self.capture = None
+            self.capture = None if self.block["published"] else "published"
         elif tag in {"p", "summary"}:
             self.capture = "snippet"
         elif tag == "div":
@@ -257,10 +289,15 @@ class _HTMLNewsListParser(HTMLParser):
             elif "__desc" in css_class:
                 self.capture = "title" if not self.block["title"].strip() else "snippet"
 
+        if self.capture:
+            self.capture_depth = self.block_depth
+
     def handle_endtag(self, tag: str) -> None:
+        if tag in self.VOID_TAGS:
+            return
         if self.block is None:
             return
-        if self.capture and tag in {"a", "time", "p", "summary"}:
+        if self.capture and self.block_depth == self.capture_depth:
             self.capture = None
         self.block_depth -= 1
         if tag == self.block_tag and self.block_depth <= 0:
@@ -290,7 +327,9 @@ def parse_html_news_list(
         snippet = clean_text(raw.get("snippet"), 600)
         published_at = parse_news_datetime(raw.get("published"))
         url = raw.get("url", "")
-        if title and is_valid_url(url) and published_at and energy_relevant(title, snippet):
+        reason = reject_reason(title=title, url=url, published_at=published_at, snippet=snippet)
+        audit_candidate(reason, published_at)
+        if reason is None:
             items.append(NormalizedNewsItem(
                 source_key=source_key,
                 source_name=source_name,
@@ -308,7 +347,21 @@ def parse_html_news_list(
 
 
 async def fetch_text(url: str, *, timeout: float = 20.0) -> str:
-    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-        response = await client.get(url, headers={"User-Agent": "OilTradingRiskDashboard/1.0"})
-        response.raise_for_status()
-        return response.text
+    audit = news_audit.get()
+    request = {"url": url, "attempted": True}
+    if audit is not None:
+        audit.setdefault("requests", []).append(request)
+    try:
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+            response = await client.get(url, headers={
+                "User-Agent": "OilTradingRiskDashboard/1.0", "Cache-Control": "no-cache",
+            })
+            request.update(status=response.status_code, response_date=response.headers.get("date"),
+                           age=response.headers.get("age"), cache=response.headers.get("x-cache"))
+            response.raise_for_status()
+            if "cf-chl-" in response.text or "<title>Just a moment" in response.text:
+                raise ValueError("Provider returned an access challenge, not news.")
+            return response.text
+    except Exception as exc:
+        request["error"] = type(exc).__name__
+        raise

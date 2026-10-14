@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.schemas.news import NewsItemResponse, NewsLatestResponse, NewsRefreshSummary
-from app.services.news_ingestion import get_recent_news, refresh_news
+from app.services.news_ingestion import get_recent_news, get_last_news_refresh, refresh_news
 
 router = APIRouter(prefix="/news", tags=["news"])
 
@@ -29,4 +29,5 @@ def latest_news(
     return NewsLatestResponse(
         items=[NewsItemResponse.model_validate(item) for item in items],
         generated_at=datetime.now(timezone.utc),
+        last_refresh=get_last_news_refresh(db),
     )

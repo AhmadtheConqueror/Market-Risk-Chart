@@ -10,6 +10,8 @@ from app.schemas.dashboard import RiskRegisterItem
 
 from app.api.shipping import router as shipping_router
 
+from app.api.intelligence import router as intelligence_router
+
 api_router = APIRouter(prefix="/api")
 api_router.include_router(health_router)
 api_router.include_router(market_router)
@@ -19,6 +21,7 @@ api_router.include_router(dashboard_router)
 api_router.include_router(ai_router)
 api_router.include_router(calendar_router)
 api_router.include_router(shipping_router)
+api_router.include_router(intelligence_router)
 
 api_router.add_api_route("/risk-register", get_risk_register, methods=["GET"], response_model=list[RiskRegisterItem], tags=["risk-register"])
 api_router.add_api_route("/risk-register", update_risk_register, methods=["PUT"], response_model=list[RiskRegisterItem], tags=["risk-register"])

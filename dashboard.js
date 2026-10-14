@@ -445,9 +445,11 @@
     categoryRiskOverrides = loadCategoryRiskOverrides();
 
     if (apiModeEnabled()) {
-      await loadLatestNews();
+      await loadLatestNews().catch(() => { newsRefreshStatus = "failed"; newsRefreshMessage = "Refresh failed · unable to load news"; });
+      await syncAdminSession();
     }
 
+    if (apiModeEnabled()) global.addEventListener("administrator-session-changed", syncAdminSession);
     bindControls();
     renderDashboard(activeDashboardData);
     updateAdminUi();
@@ -788,13 +790,24 @@
     return Boolean(global.OilRiskConfig && typeof global.OilRiskConfig.isApiMode === "function" && global.OilRiskConfig.isApiMode());
   }
 
+  function applyNewsRefreshSummary(summary) {
+    const sources = summary.sources || [];
+    const total = summary.sources_requested || 0;
+    const succeeded = summary.sources_succeeded || 0;
+    const incomplete = summary.failed > 0 || succeeded < total || sources.some(source => source.status !== "succeeded");
+    newsRefreshStatus = succeeded === 0 ? "failed" : incomplete ? "partial" : "success";
+    newsRefreshMessage = newsRefreshStatus === "failed" ? "Refresh failed" : newsRefreshStatus === "partial" ? `Partial refresh · ${succeeded} of ${total} sources available` : "Updated";
+    newsLastRefreshed = new Date(summary.retrieved_at || Date.now());
+  }
+
   async function loadLatestNews() {
     newsLoading = true;
     try {
-      const response = await global.OilRiskNewsService.getLatestNews({ limit: 20 });
-      newsItems = response && Array.isArray(response.items) ? response.items : [];
-    } catch (_) {
-      newsItems = [];
+      // Fetch per region so a busy source cannot crowd another region out of a global limit.
+      const responses = await Promise.all(["international", "africa", "nigeria"].map(region =>
+        global.OilRiskNewsService.getLatestNews({ region, limit: 3 })));
+      newsItems = responses.flatMap(response => Array.isArray(response?.items) ? response.items : []);
+      if (responses[0]?.last_refresh) applyNewsRefreshSummary(responses[0].last_refresh);
     } finally {
       newsLoaded = true;
       newsLoading = false;
@@ -825,47 +838,11 @@
     try {
       const summary = await global.OilRiskNewsService.refreshNews();
 
-      // Fetch the fresh articles regardless of partial source failures.
-      const previousItems = newsItems.slice();
-      try {
-        await loadLatestNews();
-      } catch (_) {
-        newsItems = previousItems; // keep whatever was there if GET also fails
-      }
-
-      newsLastRefreshed = new Date();
-
-      const totalSources = summary.sources_requested || 0;
-      const succeededSources = summary.sources_succeeded || 0;
-      const failedSources = totalSources - succeededSources;
-
-      if (failedSources > 0 && succeededSources > 0) {
-        // Partial success — some sources delivered, some did not.
-        newsRefreshStatus = "partial";
-        newsRefreshMessage = `News updated · ${succeededSources} of ${totalSources} sources available`;
-      } else if (failedSources > 0 && succeededSources === 0) {
-        // All sources failed but the POST itself completed — unusual state.
-        newsRefreshStatus = "failed";
-        newsRefreshMessage = "News refresh failed — no sources responded";
-      } else {
-        newsRefreshStatus = "success";
-        newsRefreshMessage = "News updated";
-      }
-
+      // Do not claim a refresh was displayed if reloading the rows failed.
+      await loadLatestNews();
+      applyNewsRefreshSummary(summary);
       newsLoading = false;
       _repaintNewsSection();
-
-      // Auto-clear the success/partial status after 6 seconds.
-      if (newsRefreshStatus !== "failed") {
-        const capturedMsg = newsRefreshMessage;
-        setTimeout(() => {
-          if (newsRefreshMessage === capturedMsg) {
-            newsRefreshStatus = "idle";
-            newsRefreshMessage = "";
-            _repaintNewsSection();
-          }
-        }, 6000);
-      }
     } catch (_error) {
       // Preserve whatever stories were already visible.
       newsLoading = false;
@@ -875,7 +852,16 @@
     }
   }
 
-  function handleAdminLogin() {
+  async function syncAdminSession() {
+    try {
+      const response = await fetch("/api/auth/status", { credentials: "same-origin" });
+      const auth = await response.json();
+      adminState.authenticated = response.ok && auth.authenticated && auth.role === "admin";
+    } catch (_) { adminState.authenticated = false; }
+    updateAdminUi();
+  }
+
+  async function handleAdminLogin() {
     const username = document.getElementById("adminUsername");
     const password = document.getElementById("adminPassword");
     const message = document.getElementById("adminLoginMessage");
@@ -886,7 +872,20 @@
       message.textContent = "";
     }
 
-    if (usernameValue === ADMIN_USERNAME && passwordValue === ADMIN_PASSWORD) {
+    let valid = false;
+    if (apiModeEnabled()) {
+      try {
+        const response = await fetch("/api/auth/login", { method: "POST", credentials: "same-origin",
+          headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: usernameValue, password: passwordValue }) });
+        const auth = await response.json();
+        valid = response.ok && auth.authenticated && auth.role === "admin";
+      } catch (_) { /* An unavailable server cannot authorize an administrator. */ }
+    } else {
+      valid = usernameValue === ADMIN_USERNAME && passwordValue === ADMIN_PASSWORD;
+    }
+    if (password) password.value = "";
+    if (valid) {
+      if (apiModeEnabled()) global.dispatchEvent(new Event("administrator-session-changed"));
       adminState.authenticated = true;
 
       if (password) {
@@ -904,7 +903,14 @@
     }
   }
 
-  function handleAdminLogout() {
+  async function handleAdminLogout() {
+    if (apiModeEnabled()) {
+      try {
+        const response = await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" });
+        if (!response.ok) throw new Error("Logout failed");
+      } catch (_) { setDataMessage("Unable to sign out. Please retry.", true); return; }
+      global.dispatchEvent(new Event("administrator-session-changed"));
+    }
     adminState.authenticated = false;
     Object.keys(editModes).forEach((key) => {
       editModes[key] = false;

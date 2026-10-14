@@ -9,3 +9,5 @@ database/*.db
 database/*.db-*
 uploads/*.xlsx
 uploads/*.tmp
+
+backend/storage/intelligence/

@@ -9,6 +9,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.news import NewsItem
+from app.models.risk import DashboardContent
+from app.providers.news.base import news_audit
 from app.providers.news import NormalizedNewsItem, get_news_providers
 from app.schemas.news import NewsRefreshSummary, NewsSourceResult
 
@@ -78,63 +80,97 @@ async def refresh_news(db: Session) -> NewsRefreshSummary:
     errors: list[str] = []
     source_results: list[NewsSourceResult] = []
 
+    # sqlite legacy transaction control does not BEGIN for SELECT/SAVEPOINT.
+    # Establish the outer transaction so releasing a savepoint cannot commit it.
+    connection = db.connection()
+    if connection.dialect.name == "sqlite" and not connection.connection.driver_connection.in_transaction:
+        connection.exec_driver_sql("BEGIN")
+
     for provider in providers:
+        audit = {"requests": [], "candidates": 0, "rejections": {}}
+        token = news_audit.set(audit)
+        result = NewsSourceResult(source_key=provider.source_key, status="failed")
         try:
             items = await provider.fetch()
             total_found += len(items)
-            source_stored = source_updated = source_unchanged = source_rejected = 0
-            for item in items:
-                try:
-                    action = upsert_news_item(db, item, retrieved_at)
-                except ValueError as exc:
-                    source_rejected += 1
-                    if len(errors) < 50:
-                        errors.append(f"{provider.source_key}: {exc}")
-                    continue
-                if action == "stored":
-                    stored += 1
-                    source_stored += 1
-                elif action == "updated":
-                    updated += 1
-                    source_updated += 1
-                else:
-                    unchanged += 1
-                    source_unchanged += 1
-            if source_rejected:
-                failed += source_rejected
-            source_results.append(NewsSourceResult(
-                source_key=provider.source_key,
-                status="partial" if source_rejected else "succeeded",
-                items_found=len(items),
-                stored=source_stored,
-                updated=source_updated,
-                unchanged=source_unchanged,
-                error=f"{source_rejected} item(s) rejected during validation" if source_rejected else None,
-            ))
-        except Exception as exc:  # One source must not block the others.
+            result.items_found = len(items)
+            unique = {item.url: item for item in items}
+            result.duplicates = len(items) - len(unique)
+            result.latest_publication = max((item.published_at for item in items), default=None)
+            cutoff = retrieved_at - timedelta(days=7)
+            result.fresh_items = sum(item.published_at >= cutoff for item in unique.values())
+            result.excluded_stale = len(unique) - result.fresh_items
+            # A failed source rolls back only its own changes, never other providers.
+            with db.begin_nested():
+                for item in unique.values():
+                    try:
+                        action = upsert_news_item(db, item, retrieved_at)
+                    except ValueError as exc:
+                        result.rejected += 1
+                        reasons = audit["rejections"]
+                        reason = str(exc)
+                        reasons[reason] = reasons.get(reason, 0) + 1
+                        continue
+                    setattr(result, action, getattr(result, action) + 1)
+                    db.flush()  # URL dedupe also works with autoflush=False.
+            request_errors = any(request.get("error") for request in audit["requests"])
+            parser_rejected = sum(audit["rejections"].values())
+            validation_rejected = result.rejected
+            result.rejected = parser_rejected
+            if not items and (audit["candidates"] or request_errors):
+                result.status = "failed"
+                result.error = "No valid dated energy stories; inspect requests and rejection reasons."
+                failed += 1
+            elif validation_rejected or request_errors:
+                result.status = "partial"
+                result.error = "Some requests or candidate stories failed; inspect provider audit."
+                failed += 1
+            else:
+                result.status = "succeeded"
+            stored += result.stored
+            updated += result.updated
+            unchanged += result.unchanged
+        except Exception as exc:
             failed += 1
-            message = f"{provider.source_key}: {type(exc).__name__}: {exc}"
-            logger.warning("News source failed: %s", message)
-            errors.append(message)
-            source_results.append(NewsSourceResult(
-                source_key=provider.source_key,
-                status="failed",
-                error=str(exc),
-            ))
+            result.stored = result.updated = result.unchanged = 0
+            result.error = f"{type(exc).__name__}: {exc}"
+            logger.warning("News source failed: %s: %s", provider.source_key, result.error)
+        finally:
+            news_audit.reset(token)
+            result.requests = audit["requests"]
+            result.latest_source_publication = audit.get("latest_source_publication", result.latest_publication)
+            result.candidates = audit["candidates"]
+            result.rejection_reasons = audit["rejections"]
+            result.rejected = sum(audit["rejections"].values())
+            if result.error:
+                errors.append(f"{provider.source_key}: {result.error}")
+            source_results.append(result)
 
-    db.commit()
-    return NewsRefreshSummary(
+    summary = NewsRefreshSummary(
         sources_requested=len(providers),
         sources_succeeded=sum(1 for result in source_results if result.status in {"succeeded", "partial"}),
-        items_found=total_found,
-        stored=stored,
-        updated=updated,
-        unchanged=unchanged,
-        failed=failed,
-        errors=errors[:50],
-        sources=source_results,
-        retrieved_at=retrieved_at,
+        items_found=total_found, stored=stored, updated=updated, unchanged=unchanged,
+        failed=failed, errors=errors[:50], sources=source_results, retrieved_at=retrieved_at,
     )
+    # Keep the last refresh auditable without adding a table or migration.
+    entry = db.scalars(select(DashboardContent).where(
+        DashboardContent.section_key == "news_refresh", DashboardContent.item_key == "latest",
+    )).first()
+    if entry is None:
+        entry = DashboardContent(section_key="news_refresh", item_key="latest", content="Provider refresh audit")
+        db.add(entry)
+    entry.active = False  # Operational audit, not dashboard/AI narrative content.
+    entry.metadata_json = summary.model_dump(mode="json")
+    entry.updated_at = retrieved_at
+    db.commit()
+    return summary
+
+
+def get_last_news_refresh(db: Session) -> dict | None:
+    entry = db.scalars(select(DashboardContent).where(
+        DashboardContent.section_key == "news_refresh", DashboardContent.item_key == "latest",
+    )).first()
+    return entry.metadata_json if entry else None
 
 
 def get_recent_news(

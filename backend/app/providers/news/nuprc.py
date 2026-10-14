@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.providers.news.base import NewsProvider, NormalizedNewsItem, classify_region, classify_topic, clean_text, energy_relevant, fetch_text, parse_news_datetime
+from app.providers.news.base import NewsProvider, NormalizedNewsItem, classify_region, classify_topic, clean_text, energy_relevant, fetch_text, parse_news_datetime, audit_candidate, reject_reason
 
 
 class NUPRCNewsProvider(NewsProvider):
@@ -25,7 +25,9 @@ class NUPRCNewsProvider(NewsProvider):
             published_at = parse_news_datetime(article.get("publishedAt") or article.get("createdAt"))
             article_id = str(article.get("_id") or article.get("id") or "").strip()
             url = self.ARTICLE_URL.format(article_id=article_id) if article_id else str(article.get("url") or "")
-            if not title or not url or not published_at or not energy_relevant(title, snippet):
+            reason = reject_reason(title=title, url=url, published_at=published_at, snippet=snippet)
+            audit_candidate(reason, published_at)
+            if reason:
                 continue
             items.append(NormalizedNewsItem(
                 source_key=self.source_key,

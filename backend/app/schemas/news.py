@@ -29,6 +29,7 @@ class NewsItemResponse(BaseModel):
 class NewsLatestResponse(BaseModel):
     items: list[NewsItemResponse] = Field(default_factory=list)
     generated_at: datetime
+    last_refresh: dict | None = None
 
 
 class NewsSourceResult(BaseModel):
@@ -39,6 +40,15 @@ class NewsSourceResult(BaseModel):
     updated: int = 0
     unchanged: int = 0
     error: str | None = None
+    requests: list[dict] = Field(default_factory=list)
+    candidates: int = 0
+    rejected: int = 0
+    rejection_reasons: dict[str, int] = Field(default_factory=dict)
+    latest_publication: datetime | None = None
+    latest_source_publication: datetime | None = None
+    fresh_items: int = 0
+    excluded_stale: int = 0
+    duplicates: int = 0
 
 
 class NewsRefreshSummary(BaseModel):
