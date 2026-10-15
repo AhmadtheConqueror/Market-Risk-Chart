@@ -16,12 +16,26 @@ class DailyBriefing(BaseModel):
     key_points: list[str]
 
 
+class PulseInterpretation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    statement: str = Field(min_length=1, max_length=600)
+    synthesis_card_ids: list[int] = Field(min_length=1, max_length=8)
+    relationship: Literal["support", "context", "offset", "uncertainty", "background"]
+
+
+class PulseInterpretationOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    interpretations: list[PulseInterpretation] = Field(max_length=4)
+
+
 class RiskAdvisorView(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     summary: str
     key_risks: list[str]
     watch_items: list[str]
+    pulse_interpretations: list[PulseInterpretation] = Field(default_factory=list, max_length=4)
 
 
 class PatternAndInference(BaseModel):
@@ -78,6 +92,7 @@ class AIAnalyseResponse(BaseModel):
     generated_at: str | None = None
     message: str = "AI service is in scaffold mode and has not been configured to make external API calls."
     analysis: AIAnalysisOutput | None = None
+    pulse_provenance: dict[str, Any] | None = None
 
 
 class AILatestResponse(BaseModel):
@@ -88,6 +103,7 @@ class AILatestResponse(BaseModel):
     generated_at: str | None = None
     message: str = "No completed AI analysis is available."
     analysis: AIAnalysisOutput | None = None
+    pulse_provenance: dict[str, Any] | None = None
 
 
 class AIChatRequest(BaseModel):

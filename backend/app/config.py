@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     gemini_api_key: str | None = None
     gemini_model: str = "gemini-3.8-flash"
     ai_timeout_seconds: float = 45.0
+    risk_advisor_pulse_freshness_hours: int = Field(72, ge=1, le=720)
 
     market_data_provider: str = "oilpriceapi"
     oilpriceapi_key: str | None = None

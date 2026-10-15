@@ -2100,6 +2100,22 @@
     `;
   }
 
+  function renderAdvisorPulse(advisor) {
+    const provenance = savedAIAnalysisResponse && savedAIAnalysisResponse.pulse_provenance;
+    const interpretations = advisor && Array.isArray(advisor.pulse_interpretations) ? advisor.pulse_interpretations : [];
+    if (!provenance || !interpretations.length || !provenance.synthesis_card_ids?.length) return "";
+    const ids = new Set(provenance.synthesis_card_ids);
+    const supported = interpretations.filter(item => item.synthesis_card_ids?.length && item.synthesis_card_ids.every(id => ids.has(id)));
+    if (!supported.length) return "";
+    const historical = provenance.evidence_status !== "current";
+    return `<div class="advisor-pulse-disclosure${provenance.stale || historical ? " is-stale" : ""}">
+      <a href="#intelligence" data-pulse-run="${escapeHtml(provenance.synthesis_run_id)}" class="advisor-pulse-link">${provenance.test_material ? "TEST MATERIAL · " : ""}Source-backed intelligence${provenance.stale ? " · STALE" : ""}</a>
+      <span>${escapeHtml(provenance.source_organisation_count)} organisations · ${escapeHtml(provenance.signal_count)} synthesis signals · Generated ${escapeHtml(formatDateTime(provenance.generated_at))}</span>
+      ${historical ? '<p>Historical provenance: supporting intelligence is invalidated or cannot currently be verified. The saved interpretation is retained.</p>' : ""}
+      ${supported.slice(0, 4).map(item => `<p class="advisor-pulse-interpretation">${escapeHtml(item.statement)} <a href="#intelligence" data-pulse-run="${escapeHtml(provenance.synthesis_run_id)}" aria-label="Explore supporting synthesis cards">Signals ${item.synthesis_card_ids.map(id => `#${escapeHtml(id)}`).join(", ")}</a><small>Stored confidence: ${escapeHtml([...new Set(item.synthesis_card_ids.map(id => provenance.card_confidences?.[String(id)] || "Unavailable"))].join(" / "))}</small></p>`).join("")}
+    </div>`;
+  }
+
   function renderAIInterpretationLocations() {
     const analysis = latestAIAnalysis;
     const disclosure = aiFreshnessDisclosure();
@@ -2146,6 +2162,7 @@
             </div>
           </div>
         </div>
+        ${renderAdvisorPulse(advisor)}
         ${disclosure}
       `
       : `<p class="empty-state">Generate an AI analysis to view current interpretation.</p>`);

@@ -2157,3 +2157,52 @@ test("browser AI context retains authoritative market and shared context without
  assert.equal(Object.hasOwn(context,"traderDesk"),false);assert.equal(Object.hasOwn(OilRiskAIService.AI_ANALYSIS_CONTRACT,"trader_desk_pulse"),false);
  assert.equal(context.briefing[0].headline,"Synthetic preserved news");assert.equal(context.riskAdvisor.summary,"Preserved advisor");assert.equal(context.macro.value,"Preserved macro");assert.equal(context.market.length,7);
 });
+
+
+function advisorPulseFixture(stale=false) {
+ const saved=persistedInterpretationFixture();
+ saved.data.pulse_provenance={synthesis_run_id:1,synthesis_card_ids:[11,12],generated_at:"2026-10-14T10:00:00Z",source_organisation_count:3,signal_count:2,stale,evidence_status:"current",card_confidences:{11:"Medium",12:"High"}};
+ saved.data.analysis.risk_advisor_view.pulse_interpretations=[{statement:"Source-backed intelligence adds context to supply monitoring.",synthesis_card_ids:[11,12],relationship:"context"}];return saved;
+}
+
+test("Risk Advisor shows compact provenance with actual source counts and supporting signal IDs",()=>{
+ const {hooks,nodes}=createInterpretationHarness();hooks.accept(advisorPulseFixture());hooks.render();const html=nodes.advisorAIContent.innerHTML;
+ assert.match(html,/Source-backed intelligence/);assert.match(html,/3 organisations · 2 synthesis signals/);assert.match(html,/#11, #12/);assert.match(html,/Stored confidence: Medium \/ High/);assert.match(html,/href="#intelligence"/);
+ assert.doesNotMatch(html,/WHAT CHANGED|CROSS-SOURCE SIGNALS|DIVERGENCE|WATCH NEXT/);
+});
+
+test("Risk Advisor labels stale intelligence and historical invalidation separately",()=>{
+ const {hooks,nodes}=createInterpretationHarness();const saved=advisorPulseFixture(true);saved.data.pulse_provenance.evidence_status="historical_or_invalidated";
+ hooks.accept(saved);hooks.render();const html=nodes.advisorAIContent.innerHTML;
+ assert.match(html,/Source-backed intelligence · STALE/);assert.match(html,/Historical provenance/);assert.match(html,/saved interpretation is retained/);assert.match(html,/is-stale/);
+});
+
+test("Risk Advisor without used Pulse cards retains its existing rendering with no fake badge",()=>{
+ const {hooks,nodes}=createInterpretationHarness();hooks.accept(persistedInterpretationFixture());hooks.render();assert.match(nodes.advisorAIContent.innerHTML,/Advisor narrative/);assert.doesNotMatch(nodes.advisorAIContent.innerHTML,/Source-backed intelligence/);
+ const saved=advisorPulseFixture();saved.data.analysis.risk_advisor_view.pulse_interpretations=[];hooks.accept(saved);hooks.render();assert.doesNotMatch(nodes.advisorAIContent.innerHTML,/Source-backed intelligence/);
+});
+
+test("Pulse provenance is escaped, bounded, and controlled synthetic verification is visibly labelled",()=>{
+ const {hooks,nodes}=createInterpretationHarness();const saved=advisorPulseFixture();saved.data.pulse_provenance.test_material=true;saved.data.analysis.risk_advisor_view.pulse_interpretations[0].statement='<script>unsafe()</script>';
+ hooks.accept(saved);hooks.render();assert.match(nodes.advisorAIContent.innerHTML,/TEST MATERIAL/);assert.doesNotMatch(nodes.advisorAIContent.innerHTML,/<script>/);assert.match(nodes.advisorAIContent.innerHTML,/&lt;script&gt;/);
+ const css=fs.readFileSync(require.resolve('../style.css'),'utf8');assert.match(css,/advisor-pulse-disclosure[^}]*overflow-wrap:anywhere/);
+ for(const file of ['dashboard.js','style.css'])assert.equal(fs.readFileSync(path.join(__dirname,'..',file),'utf8'),fs.readFileSync(path.join(__dirname,'../public',file),'utf8'));
+});
+
+test("bullish and divergent advisory intelligence cannot change deterministic risk, driver or triggers",()=>{
+ const {hooks,nodes}=createInterpretationHarness();const {data,stats,register}=phase1RiskFixture();hooks.riskInit(data,stats,register);hooks.overall(data,stats);
+ const read=()=>({overall:nodes.overallRiskLabel.textContent,driver:nodes.overallRiskDriver.textContent,triggers:nodes.triggerCounts.innerHTML,category:JSON.stringify(hooks.categorySummary(data,stats))});const before=read();
+ for(const relationship of ['support','uncertainty']){
+  const saved=advisorPulseFixture();saved.data.analysis.risk_advisor_view.pulse_interpretations[0].relationship=relationship;
+  saved.data.analysis.overall_position.status='stable';hooks.accept(saved);hooks.render();hooks.overall(data,stats);assert.deepEqual(read(),before);
+ }
+});
+
+
+test("Risk Advisor evidence navigation loads the referenced saved run without regenerating synthesis",async()=>{
+ const calls=[];const fixture=synthesisFixture().data;
+ const h=synthesisHarness(async(url,options)=>{calls.push({url,options});return {ok:true,json:async()=>fixture};});
+ await h.api.openSavedSynthesis(11);
+ assert.equal(calls.length,1);assert.equal(calls[0].url,"/api/intelligence/synthesis/11");assert.equal(calls[0].options.method,undefined);
+ assert.equal(h.nodes.synthesisWindow.value,"custom");assert.equal(h.nodes.synthesisStart.value,fixture.window_start);assert.match(h.nodes.synthesisStatus.textContent,/Risk Advisor provenance/);
+});

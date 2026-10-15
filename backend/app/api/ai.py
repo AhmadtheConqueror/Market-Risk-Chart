@@ -21,6 +21,7 @@ from app.schemas.ai import (
     AIChatResponse,
 )
 from app.services.ai_context import build_dashboard_ai_context
+from app.services import advisor_intelligence
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 
@@ -46,6 +47,11 @@ async def analyse_dashboard(
                 "analysis": None,
             }
 
+    pulse_provenance = None
+    if analysis is not None:
+        analysis.risk_advisor_view.pulse_interpretations = []
+        pulse_provenance = await advisor_intelligence.enrich(db, provider, analysis, context)
+
     _persist_analysis(
         db=db,
         context=context,
@@ -65,6 +71,7 @@ async def analyse_dashboard(
             "AI analysis is unavailable.",
         ),
         analysis=analysis,
+        pulse_provenance=pulse_provenance,
     )
 
 
@@ -110,6 +117,7 @@ def latest_analysis(db: Annotated[Session, Depends(get_db)]) -> AILatestResponse
         generated_at=record.generated_at.isoformat() if record.generated_at else None,
         message="Latest completed AI analysis loaded.",
         analysis=analysis,
+        pulse_provenance=advisor_intelligence.provenance(db,(record.input_context_json or {}).get("advisor_intelligence")),
     )
 
 

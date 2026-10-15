@@ -28,6 +28,7 @@ VALID_ANALYSIS = {
         "summary": "Watch volatility and data freshness.",
         "key_risks": ["History may be insufficient."],
         "watch_items": ["Confirm the next provider refresh."],
+        "pulse_interpretations": [],
     },
     "pattern_and_inference": {
         "summary": "Recent observations do not establish a persistent pattern.",

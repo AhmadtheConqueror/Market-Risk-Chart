@@ -72,6 +72,27 @@ class GeminiProvider(AIProvider):
             )
             return self._error_result(self._safe_error_message(exc))
 
+    async def interpret_risk_advisor_intelligence(self, context: dict[str, Any]) -> dict[str, Any]:
+        """Isolated advisory enrichment; cannot rewrite scores or base AI sections."""
+        if not self.is_configured: raise ValueError("Gemini is not configured.")
+        from google import genai
+        from google.genai import types
+        from app.schemas.ai import PulseInterpretationOutput
+        from app.services.ai_prompt_service import RISK_ADVISOR_INTELLIGENCE_INSTRUCTION
+        client=genai.Client(api_key=self.api_key)
+        try:
+            response=await asyncio.wait_for(client.aio.models.generate_content(
+                model=self.model,contents=json.dumps(context,ensure_ascii=False,allow_nan=False),
+                config=types.GenerateContentConfig(system_instruction=RISK_ADVISOR_INTELLIGENCE_INSTRUCTION,
+                    response_mime_type="application/json",response_schema=_intelligence_response_schema(PulseInterpretationOutput),
+                    temperature=0,max_output_tokens=2500)),timeout=self.timeout_seconds)
+            return PulseInterpretationOutput.model_validate(json.loads(response.text)).model_dump(mode="json")
+        except Exception as exc:
+            logger.warning("Risk Advisor intelligence enrichment failed: exception_type=%s",type(exc).__name__)
+            raise ValueError(self._safe_error_message(exc)) from None
+        finally:
+            await client.aio.aclose()
+
     async def analyse_intelligence(self, document: dict[str, Any], chunks: list[dict[str, Any]]) -> dict[str, Any]:
         """Separate report extraction: never consumes dashboard/Risk Advisor context."""
         if not self.is_configured:

@@ -99,6 +99,19 @@
   }catch(error){await loadSynthesis();status.textContent='Refresh failed. '+error.message;}
   finally{pulseBusy=false;button.disabled=false;document.getElementById('synthesisWindow').disabled=false;setSynthesisWindow();}
  }
+ async function openSavedSynthesis(id){
+  if(!Number.isInteger(id)||id<1)return;
+  const status=document.getElementById('synthesisStatus');
+  status.textContent='Loading supporting synthesis…';
+  try{
+   const run=await request('/api/intelligence/synthesis/'+id);
+   document.getElementById('synthesisWindow').value='custom';setSynthesisWindow();
+   document.getElementById('synthesisStart').value=run.window_start;document.getElementById('synthesisEnd').value=run.window_end;
+   ++pulseSequence;pulse={available:true,data:run,last_attempt:run};
+   document.getElementById('synthesisContent').innerHTML=renderSynthesis(pulse);
+   status.textContent='Saved synthesis '+id+' loaded from Risk Advisor provenance.';
+  }catch(error){status.textContent='Supporting synthesis unavailable. '+error.message;}
+ }
  function initialise() {
   if(!document.getElementById('intelligence'))return;
   for(const id of ['intelligenceSource','intelligenceDateFrom','intelligenceDateTo'])document.getElementById(id).addEventListener('change',load);
@@ -123,10 +136,11 @@
   document.getElementById('synthesisWindow').addEventListener('change',()=>{setSynthesisWindow();loadSynthesis();});
   for(const id of ['synthesisStart','synthesisEnd'])document.getElementById(id).addEventListener('change',loadSynthesis);
   document.getElementById('synthesisRefresh').addEventListener('click',refreshSynthesis);
+  document.addEventListener('click',event=>{const link=event.target.closest('[data-pulse-run]');if(link)openSavedSynthesis(Number(link.dataset.pulseRun));});
   setSynthesisWindow();loadSynthesis();
   global.addEventListener('administrator-session-changed',load);
   load();setInterval(()=>{if(polling||reports.some(d=>['extracting','analysing'].includes(d.processing_status)))load();},4000);
  }
- global.OilRiskIntelligence={filterFindings,renderReports,renderSelected,renderSynthesis,loadSynthesis,refreshSynthesis,setSynthesisWindow,synthesisScope,load};
+ global.OilRiskIntelligence={filterFindings,renderReports,renderSelected,renderSynthesis,openSavedSynthesis,loadSynthesis,refreshSynthesis,setSynthesisWindow,synthesisScope,load};
  if(typeof document!=='undefined'){if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',initialise);else initialise();}
 })(typeof window!=='undefined'?window:globalThis);
