@@ -12,7 +12,7 @@ from app.config import get_settings
 from app.db.session import get_db
 from app.models.ai import AIAnalysis, MarketSnapshot
 from app.providers.ai.factory import get_ai_provider
-from app.schemas.ai import AIAnalysisOutput
+from app.schemas.ai import AIAnalysisOutput, saved_analysis_payload
 from app.schemas.ai import (
     AILatestResponse,
     AIAnalyseRequest,
@@ -92,7 +92,7 @@ def latest_analysis(db: Annotated[Session, Depends(get_db)]) -> AILatestResponse
         )
 
     try:
-        analysis = AIAnalysisOutput.model_validate(record.output_json)
+        analysis = AIAnalysisOutput.model_validate(saved_analysis_payload(record.output_json))
     except Exception:
         return AILatestResponse(
             status="unavailable",

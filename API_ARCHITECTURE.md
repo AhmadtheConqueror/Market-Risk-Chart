@@ -386,11 +386,6 @@ Expected saved response contract:
     "opportunities": [],
     "watch": []
   },
-  "traderDesk": {
-    "counterpartyColour": "",
-    "riskStrategy": [],
-    "watchItems": []
-  },
   "managementActions": [],
   "overallCommentary": ""
 }

@@ -24,13 +24,6 @@ class RiskAdvisorView(BaseModel):
     watch_items: list[str]
 
 
-class TraderDeskPulse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    summary: str
-    market_signals: list[str]
-
-
 class PatternAndInference(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -64,7 +57,6 @@ class AIAnalysisOutput(BaseModel):
 
     daily_briefing: DailyBriefing
     risk_advisor_view: RiskAdvisorView
-    trader_desk_pulse: TraderDeskPulse
     pattern_and_inference: PatternAndInference
     management_actions: ManagementActions
     overall_position: OverallPosition
@@ -109,3 +101,12 @@ class AIChatResponse(BaseModel):
     provider: str | None = None
     message: str = "AI chat service is in scaffold mode and has not been configured to make external API calls."
     reply: str | None = None
+
+
+def saved_analysis_payload(output: dict[str, Any]) -> dict[str, Any]:
+    """Read older saved interpretations without reviving the retired output block.
+
+    Leave stored JSON untouched and retain every other section. New provider
+    output still validates against the strict current AIAnalysisOutput schema.
+    """
+    return {key: value for key, value in output.items() if key != "trader_desk_pulse"}

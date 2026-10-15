@@ -1642,8 +1642,6 @@ a {
   font-weight: 900;
   text-align: center;
 }
-
-.desk-grid,
 .geo-grid,
 .calendar-grid,
 .overall-grid,
@@ -1651,20 +1649,12 @@ a {
   display: grid;
   gap: 16px;
 }
-
-.desk-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.desk-card,
 .geo-card,
 .calendar-card,
 .management-card,
 .macro-card {
   padding: 16px;
 }
-
-.desk-card h3,
 .geo-card h3,
 .calendar-card h3,
 .management-card h3 {
@@ -1672,8 +1662,6 @@ a {
   color: var(--navy-900);
   font-size: 15px;
 }
-
-.desk-card p,
 .geo-card p,
 .calendar-card p,
 .management-card li,
@@ -2581,8 +2569,6 @@ textarea {
     width: 100%;
     justify-content: flex-start;
   }
-
-  .desk-grid,
   .calendar-grid,
   .management-grid {
     grid-template-columns: 1fr;

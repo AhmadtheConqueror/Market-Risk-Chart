@@ -29,10 +29,6 @@ VALID_ANALYSIS = {
         "key_risks": ["History may be insufficient."],
         "watch_items": ["Confirm the next provider refresh."],
     },
-    "trader_desk_pulse": {
-        "summary": "Desk posture should remain selective.",
-        "market_signals": ["Product spreads remain comparable where units are approved."],
-    },
     "pattern_and_inference": {
         "summary": "Recent observations do not establish a persistent pattern.",
         "observations": ["Do not infer missing observations."],
@@ -187,3 +183,42 @@ def test_ai_endpoint_persists_success_and_latest(client, seed_test_data, db_sess
     assert latest.status_code == 200
     assert latest.json()["status"] == "completed"
     assert latest.json()["analysis"]["daily_briefing"]["headline"] == VALID_ANALYSIS["daily_briefing"]["headline"]
+
+
+def test_current_ai_contract_drops_retired_output_but_keeps_strict_validation():
+    from pydantic import ValidationError
+    assert "trader_desk_pulse" not in AIAnalysisOutput.model_json_schema()["properties"]
+    assert "risk_advisor_view" in AIAnalysisOutput.model_fields
+    with pytest.raises(ValidationError):
+        AIAnalysisOutput.model_validate({**VALID_ANALYSIS,"trader_desk_pulse":{"summary":"Retired"}})
+
+
+def test_saved_payload_projection_preserves_all_other_sections_and_original_record():
+    from copy import deepcopy
+    from app.schemas.ai import saved_analysis_payload
+    original={**deepcopy(VALID_ANALYSIS),"trader_desk_pulse":{"summary":"Retired synthetic interpretation"}}
+    cleaned=saved_analysis_payload(original)
+    assert cleaned==VALID_ANALYSIS
+    assert "trader_desk_pulse" in original
+
+
+def test_old_saved_analysis_remains_available_without_retired_api_fields(client,db_session,seed_test_data):
+    from app.models.ai import AIAnalysis
+    original={**VALID_ANALYSIS,"trader_desk_pulse":{"summary":"Retired synthetic interpretation","market_signals":[]}}
+    record=AIAnalysis(analysis_type="daily_dashboard_analysis",provider="gemini",model="synthetic",status="completed",input_context_json={},output_json=original)
+    db_session.add(record);db_session.commit()
+    latest=client.get("/api/ai/latest")
+    assert latest.status_code==200 and latest.json()["status"]=="completed"
+    assert latest.json()["analysis"]==VALID_ANALYSIS
+    snapshot=client.get("/api/dashboard/snapshot")
+    assert snapshot.status_code==200 and snapshot.json()["ai_analysis"]==VALID_ANALYSIS
+    db_session.refresh(record)
+    assert "trader_desk_pulse" in record.output_json
+
+
+def test_verified_context_keeps_source_data_and_does_not_add_report_integration(db_session,seed_test_data):
+    context=build_dashboard_ai_context(db_session)
+    assert context["market_stats"] and "news" in context and "macro" in context
+    assert "risk_register" in context and "upcoming_calendar_events" in context
+    assert "traderDesk" not in context and "trader_desk_pulse" not in context
+    assert "intelligence_findings" not in context and "intelligence_syntheses" not in context

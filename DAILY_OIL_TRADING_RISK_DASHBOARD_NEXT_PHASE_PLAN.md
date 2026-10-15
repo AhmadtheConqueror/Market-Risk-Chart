@@ -31,7 +31,7 @@ The next phase will be implemented **one workstream at a time**, with each works
      - UAE
    - Highlight only operationally important vessels/events rather than presenting an unfiltered global vessel feed.
 
-4. **Rename `Trader Desk Pulse` to `Market Intelligence Pulse`**
+4. **Market Intelligence Pulse: the source-backed intelligence layer**
    - This becomes a document-intelligence section driven by uploaded reports/files.
    - Primary source families:
      - Argus
@@ -389,11 +389,10 @@ Do not begin with a large decorative map. The first version should prioritise **
 
 ## 6. Phase 4 — Market Intelligence Pulse
 
-### 6.1 Rename
+### 6.1 Intelligence layer
 
-Rename:
-
-**Trader Desk Pulse** → **Market Intelligence Pulse**
+**Market Intelligence Pulse** is the sole intelligence-pulse concept. The former
+manual desk panel has been retired rather than retained as a competing feature.
 
 This becomes the dashboard’s structured intelligence layer for uploaded proprietary/industry reports.
 

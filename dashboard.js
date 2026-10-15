@@ -45,7 +45,6 @@
     briefing: "daily-oil-trading-trending-news",
     managementActions: "daily-oil-trading-management-actions",
     riskAdvisor: "daily-oil-trading-risk-advisor",
-    traderDesk: "daily-oil-trading-trader-desk",
     inference: "daily-oil-trading-inference-chain",
     geopolitical: "daily-oil-trading-geopolitical-cards",
     forwardCalendar: "daily-oil-trading-forward-calendar",
@@ -54,7 +53,6 @@
   const SECTION_TARGETS = {
     briefing: "#briefing",
     advisor: "#briefing",
-    desk: "#desk",
     macro: "#macro",
     chain: "#chain",
     geo: "#geo",
@@ -65,7 +63,6 @@
   const EDITABLE_SECTIONS = [
     { id: "briefing", label: "Trending News & Market Watch", detail: "Verified regional energy headlines" },
     { id: "advisor", label: "Risk Advisor", detail: "Threat, opportunity and watch commentary" },
-    { id: "desk", label: "Trader Desk Pulse", detail: "Counterparty colour and session watch" },
     { id: "macro", label: "Macro Drivers", detail: "Macro values and why-it-matters note" },
     { id: "chain", label: "Pattern & Inference", detail: "Manual indicator-to-implication chain" },
     { id: "geo", label: "Geopolitical Risk", detail: "Jurisdiction ratings and implications" },
@@ -340,11 +337,6 @@
     { classification: "Opportunity", confidence: "Unassigned", commentary: "" },
     { classification: "Watch", confidence: "Unassigned", commentary: "" }
   ];
-  const DEFAULT_TRADER_DESK = [
-    { title: "Counterparty Colour", body: "" },
-    { title: "Risk Strategy", body: "" },
-    { title: "What to Watch This Session", body: "" }
-  ];
   const DEFAULT_INFERENCE_CHAIN = {
     nodes: [
       { label: "Indicator", detail: "" },
@@ -381,7 +373,6 @@
   let newsLastRefreshed = null;
   let selectedWorkbookFile = null;
   let riskAdvisorItems = [];
-  let traderDeskItems = [];
   let inferenceChain = null;
   let geopoliticalCards = [];
   let forwardCalendar = null;
@@ -396,7 +387,6 @@
   const editModes = {
     briefing: false,
     advisor: false,
-    desk: false,
     macro: false,
     chain: false,
     geo: false,
@@ -437,7 +427,6 @@
     macroSummary = loadMacroSummary(activeDashboardData);
     briefingItems = loadBriefingItems();
     riskAdvisorItems = loadRiskAdvisorItems();
-    traderDeskItems = loadTraderDeskItems();
     inferenceChain = loadInferenceChain();
     geopoliticalCards = loadGeopoliticalCards();
     forwardCalendar = loadForwardCalendar();
@@ -1089,7 +1078,6 @@
     renderBriefing();
     renderAIAnalysis();
     renderRiskAdvisor();
-    renderTraderDesk();
     renderMacroSummary();
     renderInferenceChain();
     renderGeopoliticalRisk(enrichedDashboardData);
@@ -2211,8 +2199,7 @@
       (isError ? " Last saved interpretation remains displayed." : "");
     // Only sections that have not been relocated belong in the shared AI panel.
     const sections = [
-      ["Daily Briefing", analysis.daily_briefing, ["key_points"]],
-      ["Trader Desk Pulse", analysis.trader_desk_pulse, ["market_signals"]]
+      ["Daily Briefing", analysis.daily_briefing, ["key_points"]]
     ];
     content.innerHTML = sections.map(([title, section, listKeys]) => section
       ? `<section class="ai-analysis-section"><h3>${escapeHtml(title)}</h3>
@@ -2283,37 +2270,6 @@
         }).join("")}
       </div>
     `;
-  }
-
-  function renderTraderDesk() {
-    const container = document.getElementById("traderDeskContent");
-
-    renderSectionActions("deskActions", "desk");
-
-    if (!container) {
-      return;
-    }
-
-    if (editModes.desk) {
-      container.innerHTML = traderDeskItems.map((item, index) => `
-        <article class="panel desk-card" data-desk-index="${index}">
-          <label>Card title
-            <input data-field="title" type="text" value="${escapeAttribute(item.title)}" />
-          </label>
-          <label>Commentary
-            <textarea data-field="body">${escapeHtml(item.body)}</textarea>
-          </label>
-        </article>
-      `).join("");
-      return;
-    }
-
-    container.innerHTML = traderDeskItems.map((item) => `
-      <article class="panel desk-card">
-        <h3>${escapeHtml(item.title)}</h3>
-        <p>${escapeHtml(item.body || "No admin-entered desk note.")}</p>
-      </article>
-    `).join("");
   }
 
   function renderMacroSummary() {
@@ -2801,9 +2757,7 @@
     } else if (section === "advisor") {
       riskAdvisorItems = normalizeRiskAdvisor(readAdvisorDraft());
       saveJson(STORAGE_KEYS.riskAdvisor, riskAdvisorItems);
-    } else if (section === "desk") {
-      traderDeskItems = normalizeTraderDesk(readTraderDeskDraft());
-      saveJson(STORAGE_KEYS.traderDesk, traderDeskItems);
+
     } else if (section === "macro") {
       macroSummary = normalizeMacroSummary(readMacroDraft());
       saveJson(STORAGE_KEYS.macroSummary, macroSummary);
@@ -2852,7 +2806,6 @@
     return {
       briefing: briefingItems,
       advisor: riskAdvisorItems,
-      desk: traderDeskItems,
       macro: macroSummary,
       chain: inferenceChain,
       geo: geopoliticalCards,
@@ -2867,8 +2820,7 @@
       briefingItems = normalizeBriefing(value);
     } else if (section === "advisor") {
       riskAdvisorItems = normalizeRiskAdvisor(value);
-    } else if (section === "desk") {
-      traderDeskItems = normalizeTraderDesk(value);
+
     } else if (section === "macro") {
       macroSummary = normalizeMacroSummary(value);
     } else if (section === "chain") {
@@ -2904,13 +2856,6 @@
       classification: valueOf(card, "[data-field='classification']"),
       confidence: valueOf(card, "[data-field='confidence']"),
       commentary: valueOf(card, "[data-field='commentary']")
-    }));
-  }
-
-  function readTraderDeskDraft() {
-    return Array.from(document.querySelectorAll("[data-desk-index]")).map((card) => ({
-      title: valueOf(card, "[data-field='title']"),
-      body: valueOf(card, "[data-field='body']")
     }));
   }
 
@@ -3143,10 +3088,6 @@
 
   function loadRiskAdvisorItems() {
     return normalizeRiskAdvisor(loadJson(STORAGE_KEYS.riskAdvisor, DEFAULT_RISK_ADVISOR));
-  }
-
-  function loadTraderDeskItems() {
-    return normalizeTraderDesk(loadJson(STORAGE_KEYS.traderDesk, DEFAULT_TRADER_DESK));
   }
 
   function loadInferenceChain() {
@@ -3401,19 +3342,6 @@
         classification,
         confidence: textOr(item.confidence, defaultItem.confidence),
         commentary: textOr(item.commentary, "")
-      };
-    });
-  }
-
-  function normalizeTraderDesk(source) {
-    const items = Array.isArray(source) ? source : DEFAULT_TRADER_DESK;
-
-    return DEFAULT_TRADER_DESK.map((defaultItem, index) => {
-      const item = items[index] || {};
-
-      return {
-        title: textOr(item.title, defaultItem.title),
-        body: textOr(item.body, "")
       };
     });
   }
@@ -3824,7 +3752,6 @@
       },
       briefing: briefingItems,
       riskAdvisor: riskAdvisorItems,
-      traderDesk: traderDeskItems,
       managementActions
     });
   }

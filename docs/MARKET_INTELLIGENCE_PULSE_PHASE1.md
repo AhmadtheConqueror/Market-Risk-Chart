@@ -7,8 +7,8 @@ Analyst upload → immutable private original → deterministic format extractio
 local evidence validation → selected-report findings/evidence UI.
 
 This is separate from Risk Advisor, market scoring, Shipping Intelligence,
-Forward Calendar, Macro Drivers and cross-source synthesis. Existing manual
-Trader Desk Pulse content is preserved. No external reports are downloaded.
+Forward Calendar, Macro Drivers and cross-source synthesis. The former manual desk panel has since been retired; stored browser notes are
+left untouched, with no active UI or AI-context consumer. No external reports are downloaded.
 
 Migration `0010_intelligence_pulse` follows `0009_shipping_pilot` and adds only
 `intelligence_documents`, `intelligence_chunks`, `intelligence_findings`.

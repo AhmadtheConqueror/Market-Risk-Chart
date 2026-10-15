@@ -1289,7 +1289,6 @@ function persistedInterpretationFixture() {
       analysis: {
         daily_briefing: { headline: "Saved briefing", summary: "Briefing narrative", key_points: ["Briefing point"] },
         risk_advisor_view: { summary: "Advisor narrative from persisted analysis", key_risks: ["Supply disruption"], watch_items: ["Inventory release"] },
-        trader_desk_pulse: { summary: "Desk narrative", market_signals: ["Desk signal"] },
         pattern_and_inference: { summary: "Pattern implication from persisted analysis", observations: ["Observed inventory draw"] },
         management_actions: { actions: [{ action: "Review hedging limits", rationale: "Protect margins", priority: "high" }, { action: "Monitor inventory release", rationale: "Track supply changes", priority: "medium" }] },
         overall_position: { status: "stable", summary: "Overall narrative from persisted analysis" },
@@ -1317,7 +1316,6 @@ test("persisted AI interpretation renders once in its four dashboard locations",
   }
   assert.match(nodes.aiManagementActionsContent.innerHTML, /<ol[^>]*>[\s\S]*<li/);
   assert.match(nodes.aiAnalysisContent.innerHTML, /Daily Briefing/);
-  assert.match(nodes.aiAnalysisContent.innerHTML, /Trader Desk Pulse/);
   assert.match(nodes.aiAnalysisContent.innerHTML, /Data Quality Notes/);
   assert.match(nodes.aiAnalysisContent.innerHTML, /Limited history for one instrument/);
 });
@@ -2127,4 +2125,35 @@ test("historical latest metric identifies the dated Platts assessment and histor
 
 test("historical and outlier presentation assets remain synchronized",()=>{
  for(const file of ["dashboard.js","historical-analytics.js","index.html","style.css"])assert.equal(fs.readFileSync(path.join(__dirname,"..",file),"utf8"),fs.readFileSync(path.join(__dirname,"../public",file),"utf8"));
+});
+
+
+test("retired desk section and all product-specific references are absent from served assets",()=>{
+ const forbidden=/trader\s+desk|desk\s+pulse|traderDesk|trader_desk|desk signals|desk-grid|desk-card|data-desk-index|href=["']#desk["']|id=["']desk["']/i;
+ function scan(dir){for(const entry of fs.readdirSync(dir,{withFileTypes:true})){const file=path.join(dir,entry.name);if(entry.isDirectory()){if(entry.name!=="vendor")scan(file);}else if(/\.(html|js|css)$/.test(file))assert.doesNotMatch(fs.readFileSync(file,"utf8"),forbidden,file);}}
+ scan(path.join(__dirname,"../public"));
+ assert.doesNotMatch(fs.readFileSync(path.join(__dirname,"../daily-oil-metals-risk-dashboard.html"),"utf8"),forbidden);
+});
+
+test("Market Intelligence Pulse, Risk Advisor and existing dashboard sections remain present",()=>{
+ const {nodes,hooks,html}=createInterpretationHarness();
+ for(const id of ["briefing","market","macro","shipping","calendar","intelligence","company","chain","geo","riskAdvisorContent","advisorAIContent","intelligenceSynthesis","intelligenceReports","intelligenceSelected"])assert.ok(nodes[id],id);
+ assert.match(html,/Market Intelligence Pulse/);assert.match(html,/Risk Advisor/);
+ hooks.accept(persistedInterpretationFixture());hooks.render();assert.match(nodes.advisorAIContent.innerHTML,/Advisor narrative from persisted analysis/);
+ assert.match(OilRiskIntelligence.renderReports([{id:1,title:"Synthetic preserved report",source_organisation:"Other",processing_status:"completed",finding_count:1}]),/Synthetic preserved report/);
+});
+
+test("older saved interpretations cannot revive the retired output or erase remaining AI sections",()=>{
+ const {hooks,nodes}=createInterpretationHarness();const saved=persistedInterpretationFixture();
+ saved.data.analysis.trader_desk_pulse={summary:"Retired synthetic block",market_signals:["Retired synthetic signal"]};
+ hooks.accept(saved);hooks.render();const html=Object.values(nodes).map(node=>node.innerHTML).join("\n");
+ assert.doesNotMatch(html,/Retired synthetic block|Retired synthetic signal|Trader Desk Pulse/);
+ assert.match(nodes.aiAnalysisContent.innerHTML,/Daily Briefing/);assert.match(nodes.aiAnalysisContent.innerHTML,/Data Quality Notes/);
+ assert.match(nodes.advisorAIContent.innerHTML,/Advisor narrative/);assert.match(nodes.aiPatternContent.innerHTML,/Pattern implication/);
+});
+
+test("browser AI context retains authoritative market and shared context without retired packaging",()=>{
+ const context=OilRiskAIService.buildDashboardAIContext({dashboardData:{marketObservations:[]},briefing:[{headline:"Synthetic preserved news"}],riskAdvisor:{summary:"Preserved advisor"},macro:{value:"Preserved macro"},traderDesk:[{body:"Unused browser note"}]});
+ assert.equal(Object.hasOwn(context,"traderDesk"),false);assert.equal(Object.hasOwn(OilRiskAIService.AI_ANALYSIS_CONTRACT,"trader_desk_pulse"),false);
+ assert.equal(context.briefing[0].headline,"Synthetic preserved news");assert.equal(context.riskAdvisor.summary,"Preserved advisor");assert.equal(context.macro.value,"Preserved macro");assert.equal(context.market.length,7);
 });

@@ -11,7 +11,6 @@
   const AI_ANALYSIS_CONTRACT = Object.freeze({
     daily_briefing: {},
     risk_advisor_view: {},
-    trader_desk_pulse: {},
     pattern_and_inference: {},
     management_actions: { actions: [] },
     overall_position: {},
@@ -80,7 +79,6 @@
       overallRisk: clone(contextSource.overallRisk || {}),
       briefing: clone(contextSource.briefing || []),
       riskAdvisor: clone(contextSource.riskAdvisor || {}),
-      traderDesk: clone(contextSource.traderDesk || {}),
       managementActions: clone(contextSource.managementActions || {})
     };
   }

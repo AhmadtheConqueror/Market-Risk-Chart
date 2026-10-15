@@ -128,4 +128,4 @@ The browser communicates only with first-party `/api/...` endpoints and never re
 
 ## Editable Local Content
 
-Admin edits are saved in browser `localStorage` for manual sections such as briefing, macro commentary, risk advisor commentary, trader desk notes, geopolitical cards, risk register, forward calendar, management actions, and risk-by-category settings. Macro values themselves are automated official-source records in API mode.
+Admin edits are saved in browser `localStorage` for manual sections such as briefing, macro commentary, risk advisor commentary, geopolitical cards, risk register, forward calendar, management actions, and risk-by-category settings. Macro values themselves are automated official-source records in API mode.

@@ -18,6 +18,7 @@ from app.schemas.dashboard import (
     MacroIndicatorItem,
     RiskRegisterItem,
 )
+from app.schemas.ai import saved_analysis_payload
 from app.schemas.market import InstrumentStatsResponse, ProductSpreadItem
 from app.services.calculations import (
     calculate_all_product_spreads,
@@ -327,7 +328,7 @@ def get_dashboard_snapshot(db: Annotated[Session, Depends(get_db)]) -> Dashboard
         .limit(1)
     )
     latest_ai = db.scalars(ai_stmt).first()
-    ai_analysis_dict = latest_ai.output_json if (latest_ai and latest_ai.output_json) else None
+    ai_analysis_dict = saved_analysis_payload(latest_ai.output_json) if (latest_ai and latest_ai.output_json) else None
 
     return DashboardSnapshotResponse(
         snapshot_date=today_str,

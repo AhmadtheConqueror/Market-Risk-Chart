@@ -22,8 +22,7 @@ available, 90-day statistics, unavailable instruments and data-quality
 qualifications. Nulls and missing observations are preserved; the AI must not
 fill or interpolate them.
 
-The structured sections are Daily Briefing, Risk Advisor View, Trader Desk
-Pulse, Pattern & Inference, Management Actions, Overall Position and Data
+The structured sections are Daily Briefing, Risk Advisor View, Pattern & Inference, Management Actions, Overall Position and Data
 Quality Notes. A normal page load reads the latest successful record; a manual
 refresh is required to request a new provider analysis.
 
@@ -427,7 +426,6 @@ These sections are not calculated from Excel. Admin types them in.
 |---|---|---|
 | Daily Briefing | Admin | Browser local storage |
 | Risk Advisor's View | Admin | Browser local storage |
-| Trader Desk Pulse | Admin | Browser local storage |
 | Macro Drivers values | Official macro publishers | Supabase PostgreSQL via FastAPI |
 | Macro commentary | Admin | Browser local storage |
 | Pattern & Inference | Admin | Browser local storage |
