@@ -28,15 +28,15 @@
 
   function markup(series) {
     if (!series || !finite(series.latest)) return '<p class="historical-empty">Historical data unavailable. Import the approved Platts workbook to populate this section.</p>';
-    const metrics = [["Latest", series.latest], ["1D change", series.change_1d], ["30D change", series.change_30d], ["90D change", series.change_90d]];
+    const metrics = [["Last Platts assessment", series.latest], ["1D change", series.change_1d], ["30D change", series.change_30d], ["90D change", series.change_90d]];
     const spread = finite(series.spread) && finite(series.factor)
       ? `<p class="historical-spread">Spread vs same-date Platts Dated Brent: <strong>${number(series.spread)} USD/bbl</strong><br>Native product ÷ ${escape(series.factor)} bbl/mt − Dated Brent. Recomputed from raw prices.</p>` : "";
     return `<h4>${escape(series.label)}</h4>
       <p class="historical-disclosure"><strong>${escape(series.freshness.toUpperCase())}</strong> · As of ${escape(series.latest_date)} · ${escape(series.unit)} · ${escape(series.symbol)}<br>
       Source: Platts Excel · ${series.observation_count} valid observations · 30D: ${series.count_30d} · 90D: ${series.count_90d}</p>
-      <div class="historical-kpis">${metrics.map(([label,value]) => `<div><span>${label}</span><strong>${number(value)}</strong><small>${escape(series.unit)}</small></div>`).join("")}</div>
+      <div class="historical-kpis">${metrics.map(([label,value], index) => `<div><span>${label}</span><strong>${number(value)}</strong><small>${escape(series.unit)}</small>${index === 0 ? `<time class="historical-assessment-date" datetime="${escape(series.latest_date)}">Assessment date: ${escape(series.latest_date)}</time>` : ""}</div>`).join("")}</div>
       ${chart(series.points, series.unit)}${spread}
-      <p class="historical-footnote">Windows end at the latest observation, not today. Changes are absolute native-unit differences; 1D uses the previous available assessment, and 30D/90D use the first valid assessment inside each calendar window. Stale history remains available.</p>
+      <p class="historical-footnote">1D/30D/90D changes are relative to this historical series’ own latest observation date (${escape(series.latest_date)}), not the current API price or today. Changes are absolute native-unit differences; 1D uses the previous available assessment, and 30D/90D use the first valid assessment inside each calendar window. Stale history remains available.</p>
       <details><summary>Historical provenance</summary><p>Workbook: ${escape(series.workbook)}<br>Worksheet: ${escape(series.worksheet)}<br>Imported: ${escape(series.imported_at)}<br>These histories are never concatenated with API/proxy observations.</p></details>`;
   }
 

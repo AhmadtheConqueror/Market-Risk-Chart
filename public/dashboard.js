@@ -1523,13 +1523,12 @@
       return;
     }
 
-    const validStats = stats.filter((stat) => Number.isFinite(stat.zScore));
+    const validStats = stats.filter((stat) => Number.isFinite(stat.windowObservationCount) && stat.windowObservationCount >= 60 && Number.isFinite(stat.zScore) && Math.abs(stat.zScore) >= 2.0);
 
     if (!validStats.length) {
       container.innerHTML = `
         <div class="outlier-empty-state">
-          <p class="outlier-empty-title">Insufficient 90D History</p>
-          <p class="outlier-empty-desc">Outlier z-scores require minimum 60 daily observations. Statistical outlier detection will activate automatically as daily provider observations accumulate in Supabase.</p>
+          <p class="outlier-empty-title">No material statistical outliers detected<br>across eligible monitored KPIs.</p>
         </div>
       `;
       return;
@@ -1540,15 +1539,18 @@
       .sort((a, b) => Math.abs(b.zScore || 0) - Math.abs(a.zScore || 0))
       .map((stat) => {
         const statusClass = (stat.status || "low").toLowerCase();
+        const freshness = stat.freshnessStatus === "stale" ? "STALE" : stat.freshnessStatus === "fresh" ? "FRESH" : "FRESHNESS UNKNOWN";
         const zText = `${stat.zScore >= 0 ? "+" : ""}${stat.zScore.toFixed(2)} sigma`;
 
         return `
-          <div class="outlier-row">
+          <div class="outlier-row${freshness === "STALE" ? " outlier-row-stale" : ""}">
             <div class="outlier-name">
               ${escapeHtml(stat.name)}
-              <span class="outlier-meta">${escapeHtml(stat.marketCode)} - ${stat.windowObservationCount} observations</span>
+              <span class="outlier-meta">${escapeHtml(stat.marketCode)} · ${stat.windowObservationCount} valid observations</span>
+              <span class="outlier-meta">Latest observation: ${escapeHtml(stat.latestObservationDate || "Unavailable")}</span>
+              <span class="outlier-freshness${freshness === "STALE" ? " outlier-freshness-stale" : ""}">${freshness}</span>
             </div>
-            <span class="outlier-score rating-${statusClass}">${escapeHtml(zText)}</span>
+            <span class="outlier-score ${freshness === "FRESH" ? `rating-${statusClass}` : "outlier-score-muted"}">${escapeHtml(zText)}</span>
           </div>
         `;
       }).join("");
@@ -1631,6 +1633,7 @@
             mean90: null,
             sd90: null,
             zScore: null,
+            latestObservationDate: backendStat ? backendStat.latest_date : null,
             windowObservationCount: 0
           };
         }
@@ -1690,6 +1693,7 @@
           mean90,
           sd90,
           zScore,
+          latestObservationDate: backendStat ? backendStat.latest_date : null,
           windowObservationCount
         };
       }
@@ -1736,6 +1740,7 @@
         historyStatus: "valid",
         mean90: stats90.mean90,
         sd90: stats90.sd90,
+        latestObservationDate: stats90.latestObservation ? stats90.latestObservation.assessmentDate : null,
         zScore: stats90.zScore,
         windowObservationCount: stats90.windowObservationCount
       };

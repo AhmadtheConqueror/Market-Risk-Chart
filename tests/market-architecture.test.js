@@ -1220,6 +1220,8 @@ function createInterpretationHarness() {
   const source = fs.readFileSync(require.resolve("../dashboard.js"), "utf8").replace(
     "  global.OilRiskDashboard = {",
     `  global.__layoutTests = {
+      outlierRender: renderOutlierScan,
+      marketStats: buildMarketProductStats,
       newsRefresh: handleNewsRefresh,
       newsState() { return {items: newsItems, status: newsRefreshStatus, message: newsRefreshMessage}; },
       loginPrepare() { renderDashboard = () => {}; openAdminPanel = () => {}; },
@@ -2078,4 +2080,51 @@ test("synthesis UI has responsive grid, explicit refresh and synchronized assets
  for(const id of ['synthesisWindow','synthesisStart','synthesisEnd','synthesisRefresh','synthesisStatus','synthesisContent'])assert.ok(html.includes(`id="${id}"`));
  assert.match(css,/@media\(max-width:700px\).*intelligence-synthesis-grid[^}]*grid-template-columns:1fr/s);
  for(const file of ['index.html','intelligence.js','style.css'])assert.equal(fs.readFileSync(path.join(__dirname,'..',file),'utf8'),fs.readFileSync(path.join(__dirname,'../public',file),'utf8'));
+});
+
+
+test("market-wide outlier scan excludes +0.25 sigma and renders +2.45 sigma with required metadata",()=>{
+ const {hooks,nodes}=createInterpretationHarness();
+ const base={marketCode:"SYNTHETIC",windowObservationCount:63,latestObservationDate:"2026-09-10",freshnessStatus:"stale",status:"Stale"};
+ hooks.outlierRender([{...base,name:"Synthetic quiet",zScore:0.25},{...base,name:"Synthetic qualifying",zScore:2.45}]);
+ const html=nodes.outlierScan.innerHTML;
+ assert.doesNotMatch(html,/Synthetic quiet|\+0.25/);assert.match(html,/Synthetic qualifying/);assert.match(html,/\+2.45 sigma/);
+ assert.match(html,/63 valid observations/);assert.match(html,/Latest observation: 2026-09-10/);assert.match(html,/>STALE</);assert.match(html,/outlier-score-muted/);assert.doesNotMatch(html,/rating-high/);
+});
+
+test("outlier eligibility requires sixty observations and a finite absolute z-score of at least two",()=>{
+ const {hooks,nodes}=createInterpretationHarness();
+ hooks.outlierRender([{name:"Short",windowObservationCount:59,zScore:4},{name:"Missing",windowObservationCount:60,zScore:null},{name:"Infinite",windowObservationCount:60,zScore:Infinity},{name:"Below",windowObservationCount:60,zScore:1.999},{name:"No count",zScore:4}]);
+ assert.match(nodes.outlierScan.innerHTML,/No material statistical outliers detected<br>across eligible monitored KPIs\./);
+ for(const name of ["Short","Missing","Infinite","Below","No count"])assert.ok(!nodes.outlierScan.innerHTML.includes(name));
+ hooks.outlierRender([{name:"Boundary",windowObservationCount:60,zScore:-2,freshnessStatus:"fresh",latestObservationDate:"2026-10-15",status:"High"}]);
+ assert.match(nodes.outlierScan.innerHTML,/Boundary/);assert.match(nodes.outlierScan.innerHTML,/-2.00 sigma/);assert.match(nodes.outlierScan.innerHTML,/>FRESH</);
+});
+
+test("outlier scan renders every eligible instrument in descending absolute z-score order",()=>{
+ const {hooks,nodes}=createInterpretationHarness();
+ const stats=[2,-3.5,2.45,-2.8,4,2.1,-2].map((zScore,i)=>({name:"Synthetic instrument "+i,zScore,windowObservationCount:60,freshnessStatus:"fresh",latestObservationDate:"2026-10-15",status:"High"}));
+ hooks.outlierRender(stats);const html=nodes.outlierScan.innerHTML;
+ assert.equal((html.match(/class="outlier-row"/g)||[]).length,7);
+ const order=[4,1,3,2,5,0,6].map(i=>html.indexOf("Synthetic instrument "+i));assert.ok(order.every((value,i)=>i===0||value>order[i-1]));
+});
+
+test("outlier date and freshness follow backend metadata independently of historical selector",()=>{
+ const {hooks,nodes,context,html}=createInterpretationHarness();context.OilRiskConfig.isApiMode=()=>true;require("node:vm").runInNewContext(fs.readFileSync(require.resolve("../risk-engine.js"),"utf8"),context);
+ const data={source:{type:"api"},kris:{},backendMarketStats:{forcados:{current_value:111.885,z_score:2.45000656,mean_90:88.064,std_dev_90:9.723,window_count:63,latest_date:"2026-09-10",freshness_status:"stale",benchmark_status:"confirmed",provider_display_name:"Synthetic Forcados",provider_symbol:"PCABC00",provider:"internal_excel"}}};
+ const stats=hooks.marketStats(data);assert.equal(stats.length,7);hooks.outlierRender(stats);const before=nodes.outlierScan.innerHTML;
+ nodes.historicalInstrument.value="jet";hooks.outlierRender(hooks.marketStats(data));assert.equal(nodes.outlierScan.innerHTML,before);
+ assert.match(before,/2026-09-10/);assert.match(before,/>STALE</);assert.match(html,/Market-wide Outlier Scan/);assert.match(html,/90D statistical extremes across monitored KPIs/);
+});
+
+test("historical latest metric identifies the dated Platts assessment and historical change anchor",()=>{
+ const series={instrument:"brent",provider:"platts_excel",label:"Platts Dated Brent",symbol:"PCAAS00",latest:100,latest_date:"2026-09-10",freshness:"stale",unit:"USD/bbl",points:[],observation_count:63,count_30d:20,count_90d:63};
+ const html=OilRiskHistoricalAnalytics.markup(series);
+ assert.match(html,/Last Platts assessment<\/span><strong>100<\/strong>.*Assessment date: 2026-09-10/);
+ assert.match(html,/datetime="2026-09-10"/);assert.match(html,/own latest observation date \(2026-09-10\)/);assert.match(html,/not the current API price or today/);assert.match(html,/PCAAS00/);
+ assert.equal(OilRiskHistoricalAnalytics.selectSeries({instruments:[{...series,provider:"oilpriceapi"}]},"brent"),undefined);
+});
+
+test("historical and outlier presentation assets remain synchronized",()=>{
+ for(const file of ["dashboard.js","historical-analytics.js","index.html","style.css"])assert.equal(fs.readFileSync(path.join(__dirname,"..",file),"utf8"),fs.readFileSync(path.join(__dirname,"../public",file),"utf8"));
 });
