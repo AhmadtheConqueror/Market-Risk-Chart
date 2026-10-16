@@ -23,7 +23,7 @@
     const observations = Array.isArray(data.marketObservations) ? data.marketObservations : [];
     const suppliedStats = Array.isArray(contextSource.marketStats) ? contextSource.marketStats : [];
     const market = Object.values(global.OilRiskConfig.MARKET_INSTRUMENTS)
-      .filter((instrument) => instrument.enabled)
+      .filter((instrument) => instrument.enabled && instrument.included_in_risk_scoring !== false)
       .map((instrument) => {
         const calculated = global.OilRiskMarketCalculations.calculateInstrumentStats(
           observations,

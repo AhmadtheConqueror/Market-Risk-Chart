@@ -6,12 +6,12 @@ import pytest
 from sqlalchemy import select, delete
 from app.models.historical import HistoricalMarketObservation as H
 from app.models.market import MarketObservation, MarketInstrument
-from app.services.historical_market import HISTORICAL_MAPPING
+from app.services.historical_market import HISTORICAL_MAPPING, RISK_SCORING_KEYS
 from app.services.calculations import calculate_instrument_stats, PRODUCT_CONVERSIONS
 from app.services.ai_context import build_dashboard_ai_context
 
 
-@pytest.mark.parametrize("key", list(HISTORICAL_MAPPING))
+@pytest.mark.parametrize("key", [k for k in HISTORICAL_MAPPING if k in RISK_SCORING_KEYS])
 def test_official_latest_history_statistics_and_identity_agree(client, seed_platts_data, db_session, key):
     symbol, label, unit, factor, *_ = HISTORICAL_MAPPING[key]
     # A newer differently defined API assessment is deliberately extreme.
@@ -49,7 +49,7 @@ def test_official_latest_history_statistics_and_identity_agree(client, seed_plat
 def test_api_only_data_cannot_supply_official_kpis_or_spreads(client, seed_test_data):
     assert client.get("/api/market/latest").json()["observations"] == []
     snapshot = client.get("/api/dashboard/snapshot").json()
-    assert len(snapshot["market_stats"]) == 7
+    assert len(snapshot["market_stats"]) == 16
     assert all(s["current_value"] is None and s["z_score"] is None for s in snapshot["market_stats"])
     assert all(s["spread"] is None for s in snapshot["product_spreads"])
     assert snapshot["outliers"] == []

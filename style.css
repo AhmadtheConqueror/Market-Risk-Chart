@@ -3224,3 +3224,10 @@ textarea {
 .advisor-pulse-disclosure > span,.advisor-pulse-interpretation small { font-size:11px; color:var(--muted); margin-top:4px; }
 .advisor-pulse-disclosure p { font-size:12px; line-height:1.6; margin:8px 0; }
 .advisor-pulse-disclosure.is-stale { border-left:3px solid #b08324; padding-left:10px; background:#fff9ee; }
+
+/* Market-only view control; keep existing responsive card grid. */
+#marketKpiViews button[aria-pressed="true"] {
+  background: var(--navy, #203973);
+  color: #fff;
+}
+#marketKpiViews { flex-wrap: wrap; margin-bottom: 12px; }

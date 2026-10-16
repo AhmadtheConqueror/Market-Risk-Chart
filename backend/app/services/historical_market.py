@@ -26,6 +26,22 @@ HISTORICAL_MAPPING = {
 }
 
 
+# Membership is fixed independently of the monitored analytics universe.
+RISK_SCORING_KEYS = frozenset(HISTORICAL_MAPPING)
+ANALYTICAL_MAPPING = {
+    'bonny_light': ('PCAIC00', 'Platts Bonny Light FOB Nigeria London', 'USD/BBL', None, "Market Risk", None),
+    'bonga': ('PCNGC00', 'Platts Bonga FOB Nigeria', 'USD/BBL', None, "Market Risk", None),
+    'brass_river': ('AAEJB00', 'Platts Brass River FOB Nigeria', 'USD/BBL', None, "Market Risk", None),
+    'erha': ('AAXUO00', 'Platts Erha FOB Nigeria', 'USD/BBL', None, "Market Risk", None),
+    'escravos': ('AAEIZ00', 'Platts Escravos FOB Nigeria', 'USD/BBL', None, "Market Risk", None),
+    'qua_iboe': ('PCAID00', 'Platts Qua Iboe FOB Nigeria', 'USD/BBL', None, "Market Risk", None),
+    'gasoil_ara': ('AAYWT00', 'Platts Gasoil .1%S (1000ppm) FOB ARA Barge (NextGen MOC)', 'USD/MT', None, "Market Risk", None),
+    'ulsd_nwe': ('AAWZD00', 'Platts ULSD 10ppmS FOB NWE Basis Le Havre Cargo', 'USD/MT', None, "Market Risk", None),
+    'jet_cif': ('PJAAU00', 'Platts Jet CIF NWE Cargo', 'USD/MT', None, "Market Risk", None),
+}
+HISTORICAL_MAPPING.update(ANALYTICAL_MAPPING)
+
+
 def parse_historical_workbook(file_bytes: bytes):
     try:
         workbook = load_workbook(BytesIO(file_bytes), data_only=True)
@@ -58,8 +74,14 @@ def parse_historical_workbook(file_bytes: bytes):
         if symbol in symbol_columns:
             mc = symbol_columns[symbol]
             actual_unit = f"{market.cell(symbol_row+3,mc).value}/{market.cell(symbol_row+2,mc).value}".upper()
+            if actual_unit != unit and key in ANALYTICAL_MAPPING:
+                errors.append(f"{symbol}: skipped invalid native unit.")
+                continue
             if actual_unit != unit:
                 raise ExcelValidationError(f"Unexpected unit for {symbol}: found '{actual_unit}', expected '{unit}'.")
+            if key in ANALYTICAL_MAPPING and str(market.cell(symbol_row+4,mc).value).strip().lower() != "c":
+                errors.append(f"{symbol}: skipped non-closing assessment; expected c.")
+                continue
             candidates.append((market,symbol_row+5,date_column,mc))
         if sheet != "Market Risk" and sheet in workbook.sheetnames:
             ws = workbook[sheet]

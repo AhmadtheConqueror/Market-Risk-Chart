@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 class MarketInstrumentResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: int
+    id: int | None = None
     instrument_key: str
     display_name: str
     provider: str | None = None
@@ -16,8 +16,8 @@ class MarketInstrumentResponse(BaseModel):
     unit: str
     category: str = "market"
     enabled: bool = True
-    created_at: datetime
-    updated_at: datetime
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
 
 class NormalizedObservation(BaseModel):
@@ -59,6 +59,8 @@ class MarketHistoryResponse(BaseModel):
 
 
 class InstrumentStatsResponse(BaseModel):
+    monitored_for_analytics: bool = True
+    included_in_risk_scoring: bool = True
     history: list[NormalizedObservation] = []
     instrument_id: str
     display_name: str

@@ -20,9 +20,10 @@ def test_market_instruments_endpoint(client: TestClient, seed_test_data: dict[st
     response = client.get("/api/market/instruments")
     assert response.status_code == 200
     instruments = response.json()
-    assert len(instruments) == 7
+    assert len(instruments) == 16
     keys = {inst["instrument_key"] for inst in instruments}
-    assert keys == {"brent", "wti", "forcados", "naphtha", "gasoil", "gasoline", "jet"}
+    from app.services.historical_market import HISTORICAL_MAPPING
+    assert keys == set(HISTORICAL_MAPPING)
 
 
 def test_market_latest_endpoint(client: TestClient, seed_platts_data: dict[str, MarketInstrument]):
@@ -65,7 +66,7 @@ def test_dashboard_snapshot_endpoint(client: TestClient, seed_platts_data: dict[
 
     assert "snapshot_date" in data
     assert "market_stats" in data
-    assert len(data["market_stats"]) == 7
+    assert len(data["market_stats"]) == 16
 
     # Check stats calculated
     brent_stat = next(s for s in data["market_stats"] if s["instrument_id"] == "brent")

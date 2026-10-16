@@ -2,8 +2,12 @@
 
 Effective 16 October 2026. Historical-refresh baseline: d76a08c.
 
-The seven official Market Risk KPIs use exact Platts workbook assessments for
-both latest value and historical/statistical analysis. Similar commodity names
+The sixteen monitored Market Risk KPIs use exact Platts workbook assessments for
+both latest value and historical/statistical analysis. Only the original seven
+are risk-scoring inputs; the nine additions are analytical only. See
+[the sixteen-KPI verification](MARKET_RISK_SIXTEEN_KPIS.md) for the current mappings,
+controlled imports and performance results. Earlier seven-KPI verification sections
+below are retained as chronological checkpoint evidence. Similar commodity names
 do not establish benchmark equivalence: **same commodity name != same benchmark**.
 
 | KPI | Platts code | Assessment | Native unit | bbl/mt for spreads |

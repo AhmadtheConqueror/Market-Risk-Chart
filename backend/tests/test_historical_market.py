@@ -8,7 +8,7 @@ from app.api.market import observation_to_normalized
 from app.models.market import MarketInstrument, MarketObservation
 from app.models.historical import HistoricalMarketObservation
 from app.services.excel_ingestion import parse_market_workbook
-from app.services.historical_market import HISTORICAL_MAPPING, historical_analytics
+from app.services.historical_market import HISTORICAL_MAPPING, RISK_SCORING_KEYS, historical_analytics
 
 
 @pytest.mark.parametrize("unit,value,key,expected,factor", [
@@ -34,7 +34,7 @@ def test_api_normalization_routes_native_units(unit,value,key,expected,factor):
 def sample_workbook():
     workbook=Workbook(); ws=workbook.active; ws.title="Market Risk"; ws.cell(21,6,"AssessDate")
     for col,(key,(symbol,label,unit,*_)) in enumerate(HISTORICAL_MAPPING.items(),7):
-        ws.cell(17,col,symbol);ws.cell(18,col,label);ws.cell(19,col,unit.split("/")[1]);ws.cell(20,col,"USD")
+        ws.cell(21,col,"c");ws.cell(17,col,symbol);ws.cell(18,col,label);ws.cell(19,col,unit.split("/")[1]);ws.cell(20,col,"USD")
         for row,dt in enumerate([date(2026,9,10),date(2026,8,12),date(2026,8,11),date(2026,6,13),date(2026,6,12)],22):
             ws.cell(row,6,datetime.combine(dt,datetime.min.time()))
             ws.cell(row,col,100 if key=="brent" else 779 if key=="jet" else 200)
@@ -72,7 +72,7 @@ def test_historical_import_is_separate_idempotent_and_preserves_provenance(clien
     assert all(r.provider=="platts_excel" and r.workbook_source=="history.xlsx" and len(r.workbook_sha256)==64 and r.imported_at for r in rows)
     after=client.get("/api/market/latest").json()
     assert before["observations"] == []  # API fixture rows cannot populate official KPIs.
-    assert len(after["observations"]) == 7
+    assert len(after["observations"]) == 16
     assert all(o["provider"] == "platts_excel" for o in after["observations"])
     count=len(rows)
     second=client.post("/api/market/import-excel",files={"workbook":("history.xlsx",payload)})
@@ -85,15 +85,15 @@ def test_historical_import_is_separate_idempotent_and_preserves_provenance(clien
 def test_empty_history_is_unavailable_not_zero(client):
     response=client.get("/api/market/historical")
     assert response.status_code==200
-    assert len(response.json()["instruments"])==7
+    assert len(response.json()["instruments"])==16
     assert all(s["latest"] is None and s["freshness"]=="unavailable" for s in response.json()["instruments"])
 
 
 @pytest.mark.skipif(not Path("uploads/active-market-data.xlsx").exists(),reason="Controlled local audit workbook not bundled")
 def test_audited_workbook_longer_copies_selected_once():
     observations,summary=parse_market_workbook(Path("uploads/active-market-data.xlsx").read_bytes())
-    assert summary["rows_valid"]==2488
-    for key in HISTORICAL_MAPPING:
+    assert sum(o.instrument_key in RISK_SCORING_KEYS for o in observations)==2488
+    for key in RISK_SCORING_KEYS:
         rows=[o for o in observations if o.instrument_key==key]
         assert len(rows)==(175 if key=="forcados" else 173 if key=="wti" else 428)
         assert len({o.assessment_date for o in rows})==len(rows)
@@ -131,7 +131,7 @@ def test_refresh_materialized_results_retains_history_and_api_series(client, see
     output = BytesIO(); workbook.save(output); refreshed = output.getvalue()
     response = client.post("/api/market/import-excel", files={"workbook":("refreshed.xlsx", refreshed)})
     assert response.status_code == 200, response.text
-    assert response.json()["historical_rows_inserted"] == 7
+    assert response.json()["historical_rows_inserted"] == 16
     assert response.json()["latest_historical_assessment_date"] == "2026-10-14"
     assert set(response.json()["mapped_historical_instruments"]) == set(HISTORICAL_MAPPING)
     series = {s["instrument"]: s for s in client.get("/api/market/historical").json()["instruments"]}
@@ -154,7 +154,7 @@ def test_refresh_materialized_results_retains_history_and_api_series(client, see
             assert float(latest.converted_value) == pytest.approx(900 / factor)
             assert series[key]["spread"] == pytest.approx(900 / factor - 100)
     after_count = db_session.scalar(select(func.count()).select_from(HistoricalMarketObservation))
-    assert after_count == before_count + 7
+    assert after_count == before_count + 16
     assert db_session.scalar(select(HistoricalMarketObservation).where(
         HistoricalMarketObservation.instrument_key == "brent",
         HistoricalMarketObservation.assessment_date == date(2025, 1, 2))) is not None

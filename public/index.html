@@ -126,12 +126,17 @@
         </div>
       </div>
 
+      <div id="marketKpiViews" class="historical-controls" role="group" aria-label="Market KPI view">
+        <button type="button" class="admin-action-button secondary" data-kpi-view="0" aria-pressed="true">KPIs 1–8</button>
+        <button type="button" class="admin-action-button secondary" data-kpi-view="1" aria-pressed="false">KPIs 9–16</button>
+        <span>7 risk-scoring inputs · 9 additional analytical KPIs</span>
+      </div>
       <div id="marketProductGrid" class="product-grid"></div>
 
       <div class="analytics-grid">
         <article id="spreads" class="panel historical-analytics-panel">
           <div class="chart-title">
-            <div><h3>Crude &amp; Product Analytics</h3><p>Exact Platts workbook assessments · same series as the seven KPI cards</p></div>
+            <div><h3>Crude &amp; Product Analytics</h3><p>Exact Platts workbook assessments · same series as the sixteen KPI cards</p></div>
           </div>
           <div class="historical-controls">
             <label for="historicalInstrument">Historical instrument</label>
@@ -139,7 +144,7 @@
               <option value="brent">Brent</option><option value="naphtha">Naphtha</option>
               <option value="gasoil">Gasoil 0.1%S</option><option value="gasoline">Gasoline Prem 10ppmS</option>
               <option value="forcados">Forcados</option><option value="wti">WTI</option><option value="jet">Jet Fuel</option>
-            </select>
+            <option value="bonny_light">Bonny Light FOB Nigeria London</option><option value="bonga">Bonga FOB Nigeria</option><option value="brass_river">Brass River FOB Nigeria</option><option value="erha">Erha FOB Nigeria</option><option value="escravos">Escravos FOB Nigeria</option><option value="qua_iboe">Qua Iboe FOB Nigeria</option><option value="gasoil_ara">Gasoil .1%S (1000ppm) FOB ARA Barge (NextGen MOC)</option><option value="ulsd_nwe">ULSD 10ppmS FOB NWE Basis Le Havre Cargo</option><option value="jet_cif">Jet CIF NWE Cargo</option></select>
             <button id="historicalReload" class="admin-action-button secondary" type="button">Reload history</button>
           </div>
           <div id="historicalAnalyticsContent" aria-live="polite"><p>Loading historical assessments…</p></div>

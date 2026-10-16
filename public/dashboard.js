@@ -13,8 +13,19 @@
     { key: "gasoline", kriCode: "MR_GASOLINE", name: "Gasoline" },
     { key: "forcados", kriCode: "MR_FORCADOS", name: "Forcados" },
     { key: "wti", kriCode: "MR_WTI", name: "WTI Cushing" },
-    { key: "jet", kriCode: "MR_JET", name: "Jet" }
+    { key: "jet", kriCode: "MR_JET", name: "Jet" },
+    { key: 'bonny_light', kriCode: null, name: 'Bonny Light FOB Nigeria London' },
+    { key: 'bonga', kriCode: null, name: 'Bonga FOB Nigeria' },
+    { key: 'brass_river', kriCode: null, name: 'Brass River FOB Nigeria' },
+    { key: 'erha', kriCode: null, name: 'Erha FOB Nigeria' },
+    { key: 'escravos', kriCode: null, name: 'Escravos FOB Nigeria' },
+    { key: 'qua_iboe', kriCode: null, name: 'Qua Iboe FOB Nigeria' },
+    { key: 'gasoil_ara', kriCode: null, name: 'Gasoil .1%S (1000ppm) FOB ARA Barge (NextGen MOC)' },
+    { key: 'ulsd_nwe', kriCode: null, name: 'ULSD 10ppmS FOB NWE Basis Le Havre Cargo' },
+    { key: 'jet_cif', kriCode: null, name: 'Jet CIF NWE Cargo' }
   ];
+  let marketKpiView = 0;
+  const scoringMarketStats = stats => stats.filter(stat => global.OilRiskConfig.MARKET_INSTRUMENTS[stat.key]?.included_in_risk_scoring !== false);
   const Z_SCORE_RISK_CONFIG = {
     normalMaxAbsZ: 1,
     watchMaxAbsZ: 2,
@@ -1165,7 +1176,7 @@
   }
 
   function getInstrumentTypeLabel(stat) {
-    if (stat.marketCode && ["PCAAS00", "PAAAM00", "AAVJI00", "PGABM00", "PCABC00", "PCACG00", "PJAAV00"].includes(stat.marketCode)) {
+    if (stat.marketCode && Object.values(global.OilRiskConfig.MARKET_INSTRUMENTS).some(instrument => instrument.providerSymbol === stat.marketCode)) {
       return "Platts assessment";
     }
     const isProxy = (stat.benchmarkStatus === "test_proxy" || stat.benchmarkStatus === "proxy");
@@ -1271,8 +1282,13 @@
       ? Number(stat.percentChange)
       : (stat.previousValue ? ((stat.change / stat.previousValue) * 100) : 0);
 
-    if (Math.abs(pct) < 0.05) {
+    if (Number(stat.change) === 0) {
       return "Unchanged from previous observation";
+    }
+    if (Math.abs(pct) < 0.05) {
+      return Number(stat.change) > 0
+        ? "Slightly above previous observation"
+        : "Slightly below previous observation";
     }
     if (pct <= -2.0) {
       return "Sharply below previous observation";
@@ -1423,7 +1439,17 @@
         : `90 calendar-day window, valid observations only (${maxObservationCount || 0} max)`;
     }
 
-    container.innerHTML = stats.map((stat) => {
+    const switcher = document.getElementById("marketKpiViews");
+    if (switcher) {
+      switcher.querySelectorAll("button").forEach(button => {
+        button.setAttribute("aria-pressed", String(Number(button.dataset.kpiView) === marketKpiView));
+        button.onclick = () => {
+          marketKpiView = Number(button.dataset.kpiView);
+          renderMarketProductCards(currentMarketStats);
+        };
+      });
+    }
+    container.innerHTML = stats.slice(marketKpiView * 8, marketKpiView * 8 + 8).map((stat) => {
       const statusClass = (stat.status || "low").toLowerCase();
       const isProxy = (stat.benchmarkStatus === "test_proxy" || stat.benchmarkStatus === "proxy");
       const freshnessLabel = stat.isUnavailable
@@ -2701,7 +2727,7 @@
       let rating = normalizeRiskRating(calculated.rating) || "Moderate";
 
       if (categoryId === "market") {
-        const marketRating = highestRiskRating(productStats.map((stat) => stat.status));
+        const marketRating = highestRiskRating(scoringMarketStats(productStats).map((stat) => stat.status));
         rating = highestRiskRating([rating, marketRating]);
       }
 
@@ -3758,7 +3784,7 @@
 
     return global.OilRiskAIService.buildDashboardAIContext({
       dashboardData: data,
-      marketStats: currentMarketStats,
+      marketStats: scoringMarketStats(currentMarketStats),
       macro: macroSummary,
       geopolitical: {
         cards: geopoliticalCards,

@@ -14,44 +14,60 @@
       id: "brent", displayName: "Dated Brent", canonicalName: "Dated Brent",
       providerDisplayName: "Platts Dated Brent", providerSymbol: "PCAAS00",
       currentProviderSymbol: "PCAAS00", provider: "platts_excel",
+      monitored_for_analytics: true, included_in_risk_scoring: true,
       benchmarkStatus: "confirmed", unit: "USD/bbl", enabled: true
     }),
     wti: Object.freeze({
       id: "wti", displayName: "WTI Cushing Mo01", canonicalName: "WTI Cushing Mo01",
       providerDisplayName: "Platts WTI Cushing Mo01", providerSymbol: "PCACG00",
       currentProviderSymbol: "PCACG00", provider: "platts_excel",
+      monitored_for_analytics: true, included_in_risk_scoring: true,
       benchmarkStatus: "confirmed", unit: "USD/bbl", enabled: true
     }),
     forcados: Object.freeze({
       id: "forcados", displayName: "Forcados FOB Nigeria", canonicalName: "Forcados FOB Nigeria",
       providerDisplayName: "Platts Forcados FOB Nigeria", providerSymbol: "PCABC00",
       currentProviderSymbol: "PCABC00", provider: "platts_excel",
+      monitored_for_analytics: true, included_in_risk_scoring: true,
       benchmarkStatus: "confirmed", unit: "USD/bbl", enabled: true
     }),
     naphtha: Object.freeze({
       id: "naphtha", displayName: "Naphtha FOB Rotterdam Barge", canonicalName: "Naphtha FOB Rotterdam Barge",
       providerDisplayName: "Platts Naphtha FOB Rotterdam Barge", providerSymbol: "PAAAM00",
       currentProviderSymbol: "PAAAM00", provider: "platts_excel",
+      monitored_for_analytics: true, included_in_risk_scoring: true,
       benchmarkStatus: "confirmed", unit: "USD/mt", enabled: true
     }),
     gasoil: Object.freeze({
       id: "gasoil", displayName: "Gasoil 0.1%S FOB Med Cargo", canonicalName: "Gasoil 0.1%S FOB Med Cargo",
       providerDisplayName: "Platts Gasoil 0.1%S FOB Med Cargo", providerSymbol: "AAVJI00",
       currentProviderSymbol: "AAVJI00", provider: "platts_excel",
+      monitored_for_analytics: true, included_in_risk_scoring: true,
       benchmarkStatus: "confirmed", unit: "USD/mt", enabled: true
     }),
     gasoline: Object.freeze({
       id: "gasoline", displayName: "Premium Unleaded 10ppm FOB AR Barge", canonicalName: "Premium Unleaded 10ppm FOB AR Barge",
       providerDisplayName: "Platts Premium Unleaded 10ppm FOB AR Barge", providerSymbol: "PGABM00",
       currentProviderSymbol: "PGABM00", provider: "platts_excel",
+      monitored_for_analytics: true, included_in_risk_scoring: true,
       benchmarkStatus: "confirmed", unit: "USD/mt", enabled: true
     }),
     jet: Object.freeze({
       id: "jet", displayName: "Jet FOB NWE Cargo", canonicalName: "Jet FOB NWE Cargo",
       providerDisplayName: "Platts Jet FOB NWE Cargo", providerSymbol: "PJAAV00",
       currentProviderSymbol: "PJAAV00", provider: "platts_excel",
+      monitored_for_analytics: true, included_in_risk_scoring: true,
       benchmarkStatus: "confirmed", unit: "USD/mt", enabled: true
-    })
+    }),
+    bonny_light: Object.freeze({"id": "bonny_light", "displayName": "Bonny Light FOB Nigeria London", "canonicalName": "Bonny Light FOB Nigeria London", "providerDisplayName": "Platts Bonny Light FOB Nigeria London", "providerSymbol": "PCAIC00", "currentProviderSymbol": "PCAIC00", "provider": "platts_excel", "benchmarkStatus": "confirmed", "unit": "USD/BBL", "enabled": true, "monitored_for_analytics": true, "included_in_risk_scoring": false}),
+    bonga: Object.freeze({"id": "bonga", "displayName": "Bonga FOB Nigeria", "canonicalName": "Bonga FOB Nigeria", "providerDisplayName": "Platts Bonga FOB Nigeria", "providerSymbol": "PCNGC00", "currentProviderSymbol": "PCNGC00", "provider": "platts_excel", "benchmarkStatus": "confirmed", "unit": "USD/BBL", "enabled": true, "monitored_for_analytics": true, "included_in_risk_scoring": false}),
+    brass_river: Object.freeze({"id": "brass_river", "displayName": "Brass River FOB Nigeria", "canonicalName": "Brass River FOB Nigeria", "providerDisplayName": "Platts Brass River FOB Nigeria", "providerSymbol": "AAEJB00", "currentProviderSymbol": "AAEJB00", "provider": "platts_excel", "benchmarkStatus": "confirmed", "unit": "USD/BBL", "enabled": true, "monitored_for_analytics": true, "included_in_risk_scoring": false}),
+    erha: Object.freeze({"id": "erha", "displayName": "Erha FOB Nigeria", "canonicalName": "Erha FOB Nigeria", "providerDisplayName": "Platts Erha FOB Nigeria", "providerSymbol": "AAXUO00", "currentProviderSymbol": "AAXUO00", "provider": "platts_excel", "benchmarkStatus": "confirmed", "unit": "USD/BBL", "enabled": true, "monitored_for_analytics": true, "included_in_risk_scoring": false}),
+    escravos: Object.freeze({"id": "escravos", "displayName": "Escravos FOB Nigeria", "canonicalName": "Escravos FOB Nigeria", "providerDisplayName": "Platts Escravos FOB Nigeria", "providerSymbol": "AAEIZ00", "currentProviderSymbol": "AAEIZ00", "provider": "platts_excel", "benchmarkStatus": "confirmed", "unit": "USD/BBL", "enabled": true, "monitored_for_analytics": true, "included_in_risk_scoring": false}),
+    qua_iboe: Object.freeze({"id": "qua_iboe", "displayName": "Qua Iboe FOB Nigeria", "canonicalName": "Qua Iboe FOB Nigeria", "providerDisplayName": "Platts Qua Iboe FOB Nigeria", "providerSymbol": "PCAID00", "currentProviderSymbol": "PCAID00", "provider": "platts_excel", "benchmarkStatus": "confirmed", "unit": "USD/BBL", "enabled": true, "monitored_for_analytics": true, "included_in_risk_scoring": false}),
+    gasoil_ara: Object.freeze({"id": "gasoil_ara", "displayName": "Gasoil .1%S (1000ppm) FOB ARA Barge (NextGen MOC)", "canonicalName": "Gasoil .1%S (1000ppm) FOB ARA Barge (NextGen MOC)", "providerDisplayName": "Platts Gasoil .1%S (1000ppm) FOB ARA Barge (NextGen MOC)", "providerSymbol": "AAYWT00", "currentProviderSymbol": "AAYWT00", "provider": "platts_excel", "benchmarkStatus": "confirmed", "unit": "USD/MT", "enabled": true, "monitored_for_analytics": true, "included_in_risk_scoring": false}),
+    ulsd_nwe: Object.freeze({"id": "ulsd_nwe", "displayName": "ULSD 10ppmS FOB NWE Basis Le Havre Cargo", "canonicalName": "ULSD 10ppmS FOB NWE Basis Le Havre Cargo", "providerDisplayName": "Platts ULSD 10ppmS FOB NWE Basis Le Havre Cargo", "providerSymbol": "AAWZD00", "currentProviderSymbol": "AAWZD00", "provider": "platts_excel", "benchmarkStatus": "confirmed", "unit": "USD/MT", "enabled": true, "monitored_for_analytics": true, "included_in_risk_scoring": false}),
+    jet_cif: Object.freeze({"id": "jet_cif", "displayName": "Jet CIF NWE Cargo", "canonicalName": "Jet CIF NWE Cargo", "providerDisplayName": "Platts Jet CIF NWE Cargo", "providerSymbol": "PJAAU00", "currentProviderSymbol": "PJAAU00", "provider": "platts_excel", "benchmarkStatus": "confirmed", "unit": "USD/MT", "enabled": true, "monitored_for_analytics": true, "included_in_risk_scoring": false})
   });
 
   // Approved workbook-specific factors. API conversion defaults remain separate.

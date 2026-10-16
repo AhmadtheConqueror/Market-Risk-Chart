@@ -1217,6 +1217,8 @@ function createInterpretationHarness() {
     `  global.__layoutTests = {
       outlierRender: renderOutlierScan,
       marketStats: buildMarketProductStats,
+      cards: renderMarketProductCards,
+      cardContext: formatCardContext,
       newsRefresh: handleNewsRefresh,
       newsState() { return {items: newsItems, status: newsRefreshStatus, message: newsRefreshMessage}; },
       loginPrepare() { renderDashboard = () => {}; openAdminPanel = () => {}; },
@@ -1849,12 +1851,12 @@ test("Phase 1 preserves existing category overrides for calculation, triggers an
 
 const path = require("node:path");
 require("../historical-analytics.js");
-test("historical analytics has seven instruments and one historical chart independent of live cards", () => {
+test("historical analytics has sixteen instruments and one historical chart independent of live cards", () => {
   const html = fs.readFileSync(path.join(__dirname, "../index.html"), "utf8");
   assert.match(html, /Crude &amp; Product Analytics/);
   assert.doesNotMatch(html, /id="crackChart"/);
   const control = html.match(/<select id="historicalInstrument">([\s\S]*?)<\/select>/)[1];
-  assert.equal((control.match(/<option /g) || []).length, 7);
+  assert.equal((control.match(/<option /g) || []).length, 16);
   assert.match(html, /id="marketProductGrid"/);
   assert.equal(fs.readFileSync(path.join(__dirname, "../historical-analytics.js"), "utf8"), fs.readFileSync(path.join(__dirname, "../public/historical-analytics.js"), "utf8"));
 });
@@ -2105,7 +2107,7 @@ test("outlier scan renders every eligible instrument in descending absolute z-sc
 test("outlier date and freshness follow backend metadata independently of historical selector",()=>{
  const {hooks,nodes,context,html}=createInterpretationHarness();context.OilRiskConfig.isApiMode=()=>true;require("node:vm").runInNewContext(fs.readFileSync(require.resolve("../risk-engine.js"),"utf8"),context);
  const data={source:{type:"api"},kris:{},backendMarketStats:{forcados:{current_value:111.885,z_score:2.45000656,mean_90:88.064,std_dev_90:9.723,window_count:63,latest_date:"2026-09-10",freshness_status:"stale",benchmark_status:"confirmed",provider_display_name:"Synthetic Forcados",provider_symbol:"PCABC00",provider:"platts_excel"}}};
- const stats=hooks.marketStats(data);assert.equal(stats.length,7);hooks.outlierRender(stats);const before=nodes.outlierScan.innerHTML;
+ const stats=hooks.marketStats(data);assert.equal(stats.length,16);hooks.outlierRender(stats);const before=nodes.outlierScan.innerHTML;
  nodes.historicalInstrument.value="jet";hooks.outlierRender(hooks.marketStats(data));assert.equal(nodes.outlierScan.innerHTML,before);
  assert.match(before,/2026-09-10/);assert.match(before,/>STALE</);assert.match(html,/Market-wide Outlier Scan/);assert.match(html,/90D statistical extremes across monitored KPIs/);
 });
@@ -2220,7 +2222,7 @@ test("Admin historical import reports date and counts and reloads historical ana
 });
 
 
-test("all seven official cards use exact Platts native assessments and preserve missing values", () => {
+test("all sixteen official cards use exact Platts native assessments and preserve missing values", () => {
   const {hooks,context}=createInterpretationHarness();context.OilRiskConfig.isApiMode=()=>true;
   require("node:vm").runInNewContext(fs.readFileSync(require.resolve("../risk-engine.js"),"utf8"),context);
   const backendMarketStats=Object.fromEntries(Object.values(globalThis.OilRiskConfig.MARKET_INSTRUMENTS).map((d,i)=>[d.id,{
@@ -2229,7 +2231,7 @@ test("all seven official cards use exact Platts native assessments and preserve 
     latest_date:"2026-10-14",benchmark_status:"confirmed",freshness_status:"fresh",z_score:2.45,window_count:63,history_status:"valid"
   }]));
   const stats=hooks.marketStats({source:{type:"api"},kris:{},backendMarketStats});
-  assert.equal(stats.length,7);
+  assert.equal(stats.length,16);
   for(const stat of stats){
     const d=globalThis.OilRiskConfig.MARKET_INSTRUMENTS[stat.key];
     assert.equal(stat.marketCode,d.providerSymbol);assert.equal(stat.unit,d.unit);
@@ -2282,8 +2284,60 @@ test("official card histories and latest values are prepared from one canonical 
   try {
     const data=await globalThis.OilRiskMarketDataService.prepareDashboardData(globalThis.OilRiskData.cloneDashboardData());
     assert.deepEqual(calls,["/api/dashboard/snapshot"]);
-    assert.equal(data.marketObservations.length,14);
+    assert.equal(data.marketObservations.length,32);
     for(const stat of Object.values(data.backendMarketStats))assert.equal(stat.history.length,2);
     assert.equal(data.kris.MR_BRENT.currentValue,100);assert.equal(data.kris.MR_BRENT.previousValue,90);
   } finally {globalThis.fetch=originalFetch;globalThis.OilRiskMarketDataService.clearSessionCache();}
+});
+
+
+test("sixteen monitored KPIs retain exactly seven scoring members and no new conversion factors",()=>{
+ const definitions=Object.values(OilRiskConfig.MARKET_INSTRUMENTS);
+ assert.equal(definitions.length,16);
+ assert.deepEqual(definitions.filter(d=>d.included_in_risk_scoring).map(d=>d.id).sort(),["brent","forcados","gasoil","gasoline","jet","naphtha","wti"]);
+ for(const id of ["gasoil_ara","ulsd_nwe","jet_cif"]){
+  assert.equal(OilRiskConfig.MARKET_INSTRUMENTS[id].unit,"USD/MT");
+  assert.equal(OilRiskConfig.BBL_PER_MT[OilRiskConfig.MARKET_INSTRUMENTS[id].providerSymbol],undefined);
+ }
+ const html=fs.readFileSync(require.resolve("../index.html"),"utf8");
+ const selector=html.split('id="historicalInstrument"')[1].split('</select>')[0];
+ assert.equal((selector.match(/<option /g)||[]).length,16);
+});
+
+test("KPI views render eight cards without fetching and outliers include the other view",()=>{
+ const {hooks,nodes,context}=createInterpretationHarness();context.OilRiskConfig.isApiMode=()=>true;
+ context.OilRiskMarketCalculations=globalThis.OilRiskMarketCalculations;
+ require("node:vm").runInNewContext(fs.readFileSync(require.resolve("../risk-engine.js"),"utf8"),context);
+ const buttons=[0,1].map(i=>({dataset:{kpiView:String(i)},setAttribute(){}}));
+ nodes.marketKpiViews.querySelectorAll=()=>buttons;
+ const backendMarketStats=Object.fromEntries(Object.values(OilRiskConfig.MARKET_INSTRUMENTS).map(d=>[d.id,{
+  current_value:100,unit:d.unit,provider:"platts_excel",provider_symbol:d.providerSymbol,
+  latest_date:"2026-10-14",freshness_status:"fresh",benchmark_status:"confirmed",window_count:63,z_score:d.id==="erha"?4:0.25
+ }]));
+ const stats=hooks.marketStats({source:{type:"api"},kris:{},backendMarketStats});hooks.riskInit({},stats);
+ hooks.cards(stats);assert.equal((nodes.marketProductGrid.innerHTML.match(/class="product-card /g)||[]).length,8);
+ assert.match(nodes.marketProductGrid.innerHTML,/data-instrument="bonny_light"/);assert.doesNotMatch(nodes.marketProductGrid.innerHTML,/data-instrument="erha"/);
+ hooks.outlierRender(stats);const outliers=nodes.outlierScan.innerHTML;assert.match(outliers,/Erha/);
+ buttons[1].onclick();assert.equal((nodes.marketProductGrid.innerHTML.match(/class="product-card /g)||[]).length,8);
+ assert.match(nodes.marketProductGrid.innerHTML,/data-instrument="erha"/);assert.doesNotMatch(nodes.marketProductGrid.innerHTML,/data-instrument="brent"/);
+ hooks.outlierRender(stats);assert.equal(nodes.outlierScan.innerHTML,outliers);
+});
+
+test("extreme analytical-only instruments cannot alter deterministic category scores",()=>{
+ const {hooks,context}=createInterpretationHarness();
+ require("node:vm").runInNewContext(fs.readFileSync(require.resolve("../risk-engine.js"),"utf8"),context);
+ const data=context.OilRiskEngine.enrichDashboardData(globalThis.OilRiskData.cloneDashboardData());
+ const stats=[{key:"brent",status:"Low"}];hooks.riskInit(data,stats);
+ const before=JSON.stringify(hooks.categorySummary(data,stats));
+ const expanded=[...stats,...Object.values(OilRiskConfig.MARKET_INSTRUMENTS).filter(d=>!d.included_in_risk_scoring).map(d=>({key:d.id,status:"Catastrophic"}))];
+ assert.equal(JSON.stringify(hooks.categorySummary(data,expanded)),before);
+});
+
+
+test("small nonzero assessment movements retain direction rather than unchanged wording",()=>{
+ const {hooks}=createInterpretationHarness();
+ for(const [change,expected] of [[0.50,"Slightly above previous observation"],[-0.50,"Slightly below previous observation"],[0,"Unchanged from previous observation"]]){
+  assert.equal(hooks.cardContext({change,previousValue:1666,percentChange:change/1666*100}),expected);
+ }
+ assert.equal(hooks.cardContext({change:0.5,previousValue:1666,percentChange:null}),"Slightly above previous observation");
 });

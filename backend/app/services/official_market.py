@@ -6,7 +6,7 @@ from sqlalchemy.orm import load_only
 from app.models.historical import HistoricalMarketObservation as H
 from app.schemas.market import InstrumentStatsResponse, NormalizedObservation, ProductSpreadItem
 from app.services.calculations import calculate_instrument_stats
-from app.services.historical_market import HISTORICAL_MAPPING
+from app.services.historical_market import HISTORICAL_MAPPING, RISK_SCORING_KEYS
 
 
 def historical_observation(row, now=None):
@@ -19,7 +19,7 @@ def historical_observation(row, now=None):
         retrievedAt=row.imported_at.isoformat(), provider="platts_excel", sourceType="excel",
         sourceTimestamp=assessment.isoformat(), ageSeconds=max(0, (now-assessment).total_seconds()),
         freshnessStatus="stale" if (now.date()-row.assessment_date).days > 3 else "fresh",
-        barrelsPerMT=factor, convertedValue=float(row.native_value)/factor if factor else float(row.native_value),
+        barrelsPerMT=factor, convertedValue=float(row.native_value)/factor if factor else float(row.native_value) if unit == "USD/BBL" else None,
         benchmarkDefinition=label)
 
 
@@ -67,6 +67,7 @@ def official_market_snapshot(session):
         latest = historical_observation(history[-1], now) if history else None
         stats.append(InstrumentStatsResponse(
             instrument_id=key, display_name=label, provider="platts_excel", provider_symbol=symbol,
+            included_in_risk_scoring=key in RISK_SCORING_KEYS, monitored_for_analytics=True,
             history=[historical_observation(row, now) for row in history
                 if row.assessment_date >= history[-1].assessment_date - timedelta(days=89)],
             provider_display_name=label, benchmark_definition=label, unit=unit,

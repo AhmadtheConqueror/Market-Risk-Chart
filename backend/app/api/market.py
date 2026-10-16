@@ -85,10 +85,13 @@ def get_instruments(db: Annotated[Session, Depends(get_db)]) -> list[MarketInstr
     )
     instruments = db.scalars(stmt).all()
     from app.services.historical_market import HISTORICAL_MAPPING
-    return [MarketInstrumentResponse.model_validate(inst).model_copy(update={
-        "display_name": HISTORICAL_MAPPING[inst.instrument_key][1], "provider": "platts_excel",
-        "provider_symbol": HISTORICAL_MAPPING[inst.instrument_key][0], "unit": HISTORICAL_MAPPING[inst.instrument_key][2]
-    }) for inst in instruments if inst.instrument_key in HISTORICAL_MAPPING]
+    records = {inst.instrument_key: inst for inst in instruments}
+    return [(MarketInstrumentResponse.model_validate(records[key]) if key in records
+        else MarketInstrumentResponse(instrument_key=key, display_name=spec[1], unit=spec[2]))
+        .model_copy(update={"display_name": spec[1], "provider": "platts_excel",
+            "provider_symbol": spec[0], "unit": spec[2]})
+        for key, spec in HISTORICAL_MAPPING.items()]
+
 
 
 @router.get("/latest", response_model=MarketLatestResponse)

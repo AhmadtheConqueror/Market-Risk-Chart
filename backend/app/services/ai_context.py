@@ -20,6 +20,10 @@ def build_dashboard_ai_context(db: Session) -> dict[str, Any]:
     payload = snapshot.model_dump(mode="json")
     payload.pop("ai_analysis", None)
 
+    from app.services.historical_market import RISK_SCORING_KEYS
+    # Additional monitored series are not new weighted Risk Advisor inputs.
+    payload["market_stats"] = [s for s in payload.get("market_stats", []) if s["instrument_id"] in RISK_SCORING_KEYS]
+    payload["outliers"] = [s for s in payload.get("outliers", []) if s["instrument_id"] in RISK_SCORING_KEYS]
     stats_by_key = {item["instrument_id"]: item for item in payload.get("market_stats", [])}
     from app.services.historical_market import load_historical_series
     from app.services.official_market import historical_observation
