@@ -1220,6 +1220,10 @@ function createInterpretationHarness() {
       cards: renderMarketProductCards,
       cardContext: formatCardContext,
       newsRefresh: handleNewsRefresh,
+      newsLoad: loadLatestNews,
+      newsRender: renderVerifiedNews,
+      newsSourceType,
+      newsSeed(items, audit=null) { newsItems=items; newsAudit=audit; },
       newsState() { return {items: newsItems, status: newsRefreshStatus, message: newsRefreshMessage}; },
       loginPrepare() { renderDashboard = () => {}; openAdminPanel = () => {}; },
       login: handleAdminLogin,
@@ -2340,4 +2344,39 @@ test("small nonzero assessment movements retain direction rather than unchanged 
   assert.equal(hooks.cardContext({change,previousValue:1666,percentChange:change/1666*100}),expected);
  }
  assert.equal(hooks.cardContext({change:0.5,previousValue:1666,percentChange:null}),"Slightly above previous observation");
+});
+
+
+test("news loads are single-flight and preserve successful regions on partial failure",async()=>{
+ const {hooks,context}=createInterpretationHarness();context.OilRiskConfig.isApiMode=()=>true;
+ const now=new Date().toISOString();let calls=0,resolveNigeria;
+ hooks.newsSeed([{source_key:"nnpc",source_name:"Synthetic NNPC",title:"Prior valid oil story",url:"https://example.com/old",region:"nigeria",published_at:now}]);
+ context.OilRiskNewsService={getLatestNews:({region})=>{
+  calls++;if(region==="nigeria")return new Promise((resolve,reject)=>{resolveNigeria=()=>reject(new Error("offline"));});
+  return Promise.resolve({items:region==="africa"?[{source_key:"african_energy_chamber",source_name:"Synthetic AEC",title:"Synthetic African oil story",url:"https://example.com/new",region,published_at:now}]:[]});
+ }};
+ const first=hooks.newsLoad();const duplicate=hooks.newsLoad();assert.equal(first,duplicate);assert.equal(calls,3);
+ assert.match(hooks.newsRender(),/Loading news/);resolveNigeria();await assert.rejects(first);
+ assert.match(hooks.newsRender(),/Prior valid oil story/);assert.match(hooks.newsRender(),/Synthetic African oil story/);
+ assert.equal(hooks.newsState().status,"partial");assert.match(hooks.newsRender(),/Industry organization release/);
+});
+
+test("news errors, empty audits and source classes remain explicit",async()=>{
+ const {hooks,context}=createInterpretationHarness();context.OilRiskConfig.isApiMode=()=>true;
+ assert.match(hooks.newsRender(),/Refresh not yet attempted/);
+ hooks.newsSeed([],{sources:[{source_key:"eia",status:"succeeded",outcome:"articles_rejected_irrelevant",rejection_reasons:{not_energy_relevant:2}},{source_key:"opec",status:"failed",outcome:"provider_unavailable"}]});
+ const html=hooks.newsRender();assert.match(html,/Articles rejected as irrelevant/);assert.match(html,/Provider unavailable/);assert.match(html,/No recent verified stories/);
+ assert.equal(hooks.newsSourceType({source_key:"nnpc"}),"Official company release");
+ assert.equal(hooks.newsSourceType({source_key:"african_energy_chamber"}),"Industry organization release");
+ assert.equal(hooks.newsSourceType({source_type:"commentary_analysis"}),"Commentary or analysis");
+ context.OilRiskNewsService={getLatestNews:async()=>{throw Error("offline");}};
+ await assert.rejects(hooks.newsLoad());assert.match(hooks.newsRender(),/News unavailable/);
+});
+
+test("critical dashboard initialization never awaits news or administrator session",()=>{
+ const source=fs.readFileSync(require.resolve("../dashboard.js"),"utf8");
+ const init=source.slice(source.indexOf("  async function initialiseDashboard()"),source.indexOf("  function bindControls()"));
+ assert.doesNotMatch(init,/await loadLatestNews|await syncAdminSession/);
+ assert.ok(init.indexOf("renderDashboard(activeDashboardData)")<init.indexOf("loadLatestNews()"));
+ assert.match(fs.readFileSync(require.resolve("../js/services/newsService.js"),"utf8"),/AbortSignal.timeout\(12000\)/);
 });

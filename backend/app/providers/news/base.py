@@ -13,6 +13,7 @@ from urllib.parse import urljoin, urlparse
 import xml.etree.ElementTree as ET
 
 import httpx
+import anyio
 
 
 # One refresh task owns its audit; no credentials or response bodies are retained.
@@ -148,26 +149,85 @@ NON_NIGERIA_AFRICAN_COUNTRIES = (
 )
 
 
+def _mentions(text: str, terms) -> bool:
+    return any(re.search(r"(?<!\w)" + re.escape(term) + r"(?!\w)", text, re.I) for term in terms)
+
+
+def _first_position(text: str, terms) -> int | None:
+    positions = [m.start() for term in terms
+                 if (m := re.search(r"(?<!\w)" + re.escape(term) + r"(?!\w)", text, re.I))]
+    return min(positions) if positions else None
+
+
+# Nigerian institutional providers publish Nigerian-subject releases by definition.
+NIGERIA_DEFAULT_SOURCES = {"nuprc", "nnpc"}
+_MULTILATERAL_JOINERS = re.compile(r"(?<!\w)(and|&|with|vs\.?|versus|between)(?!\w)", re.I)
+
+
+def _nigeria_led(text: str, nigeria, competing) -> bool:
+    """Nigeria is the headline's leading subject and is not paired with a counterparty.
+
+    Foreign countries / OPEC that appear AFTER the Nigerian subject are treated as
+    destinations, sources or context ("Nigeria crude exports to India"). A foreign
+    or OPEC entity that comes first, or is joined by "and/with/vs/between", marks
+    a multinational story that stays International.
+    """
+    ng_pos = _first_position(text, nigeria)
+    other_pos = _first_position(text, competing)
+    if other_pos is None:
+        return True
+    if ng_pos is None or other_pos < ng_pos:
+        return False
+    return not _MULTILATERAL_JOINERS.search(text[ng_pos:other_pos])
+
+
 def classify_region(source_key: str, title: str, snippet: str | None = None) -> str:
-    if source_key in {"nuprc", "nnpc"}:
+    """Subject/location first; Nigerian institutional providers default to Nigeria.
+
+    Titles outrank incidental excerpt mentions. Multiple African countries use
+    Africa; cross-continent/unknown focus uses the broad International bucket.
+    A Nigeria-led headline stays Nigeria despite a trailing foreign mention.
+    """
+    if source_key in NIGERIA_DEFAULT_SOURCES:
         return "nigeria"
-    text = f"{title} {snippet or ''}".lower()
-
-    if source_key == "african_energy_chamber":
-        # Nigeria-specific AEC stories classify as nigeria
-        if any(term in title.lower() for term in NIGERIA_TERMS):
-            return "nigeria"
-        if any(term in text for term in NIGERIA_TERMS) and not any(country in title.lower() for country in NON_NIGERIA_AFRICAN_COUNTRIES):
-            return "nigeria"
-        # Explicitly global / non-African stories classify as international
-        if not any(term in text for term in AFRICA_TERMS) and not any(term in text for term in NIGERIA_TERMS):
+    nigeria = NIGERIA_TERMS + ("dangote refinery", "cbn", "naira", "seplat", "oando")
+    africa = tuple(t for t in AFRICA_TERMS if t not in {"aec", "energy chamber"})
+    specific_africa = tuple(t for t in africa if t not in {"africa", "african", "ecowas"})
+    foreign = ("united states", "u.s.", "usa", "united kingdom", "britain", "china",
+               "india", "iran", "iraq", "saudi arabia", "russia", "europe", "brazil", "venezuela")
+    multinational = foreign + ("opec", "opec+")
+    if _mentions(title, ("global", "worldwide", "world oil", "international markets")) and not _mentions(title, nigeria + africa):
+        return "international"
+    for text in (title, snippet or ""):
+        ng = _mentions(text, nigeria)
+        af = _mentions(text, africa)
+        outside = _mentions(text, foreign)
+        if ng or af or outside:
+            if ng and not _mentions(text, specific_africa):
+                return "nigeria" if _nigeria_led(text, nigeria, multinational) else "international"
+            if outside and (af or ng):
+                return "international"
+            if af:
+                return "africa"
+            if ng:
+                return "nigeria"
             return "international"
-        # Default for AEC is africa
-        return "africa"
-
-    if any(country in text for country in ("nigeria", "angola", "libya", "algeria", "africa", "ghana")):
-        return "africa"
     return "international"
+
+
+def classify_source_type(source_key: str, metadata: dict | None = None) -> str:
+    # Genre requires explicit source metadata, never guesses from headline words.
+    if (metadata or {}).get("article_kind") in {"analysis", "commentary", "opinion"}:
+        return "commentary_analysis"
+    if source_key in {"eia", "opec", "nuprc"}:
+        return "official_institutional_release"
+    if source_key == "nnpc":
+        return "official_company_release"
+    if source_key == "african_energy_chamber":
+        return "industry_organization_release"
+    if source_key in {"cnn", "bbc", "aljazeera", "bloomberg", "nairametrics"}:
+        return "independent_media_reporting"
+    return "unclassified"
 
 
 def classify_topic(source_key: str, title: str, snippet: str | None = None) -> str:
@@ -346,22 +406,42 @@ def parse_html_news_list(
     return items
 
 
-async def fetch_text(url: str, *, timeout: float = 20.0) -> str:
+async def fetch_text(url: str, *, timeout: float = 20.0, retries: int = 0) -> str:
+    """Existing providers make one request. One optional transient retry is opt-in.
+
+    No caller enables retries until publisher limits are approved. Never retry
+    access denials/challenges; obey long Retry-After by stopping, not polling.
+    """
+    if retries not in (0, 1):
+        raise ValueError("News retries must be zero or one")
     audit = news_audit.get()
-    request = {"url": url, "attempted": True}
-    if audit is not None:
-        audit.setdefault("requests", []).append(request)
-    try:
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-            response = await client.get(url, headers={
-                "User-Agent": "OilTradingRiskDashboard/1.0", "Cache-Control": "no-cache",
-            })
-            request.update(status=response.status_code, response_date=response.headers.get("date"),
-                           age=response.headers.get("age"), cache=response.headers.get("x-cache"))
-            response.raise_for_status()
-            if "cf-chl-" in response.text or "<title>Just a moment" in response.text:
-                raise ValueError("Provider returned an access challenge, not news.")
-            return response.text
-    except Exception as exc:
-        request["error"] = type(exc).__name__
-        raise
+    for attempt in range(retries + 1):
+        request = {"url": url, "attempted": True, "attempt": attempt + 1}
+        if audit is not None:
+            audit.setdefault("requests", []).append(request)
+        try:
+            async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+                response = await client.get(url, headers={
+                    "User-Agent": "OilTradingRiskDashboard/1.0", "Cache-Control": "no-cache",
+                })
+                request.update(status=response.status_code, response_date=response.headers.get("date"),
+                               age=response.headers.get("age"), cache=response.headers.get("x-cache"))
+                response.raise_for_status()
+                if "cf-chl-" in response.text or "<title>Just a moment" in response.text:
+                    raise ValueError("Provider returned an access challenge, not news.")
+                return response.text
+        except Exception as exc:
+            request["error"] = type(exc).__name__
+            transient = isinstance(exc, (httpx.TimeoutException, httpx.NetworkError))
+            delay = 0.5
+            if isinstance(exc, httpx.HTTPStatusError):
+                transient = exc.response.status_code in {429, 502, 503, 504}
+                retry_after = exc.response.headers.get("Retry-After")
+                if retry_after:
+                    try:
+                        delay = max(delay, float(retry_after))
+                    except ValueError:
+                        transient = False  # Date-form or unknown allowance: stop safely.
+            if attempt >= retries or not transient or delay > 5:
+                raise
+            await anyio.sleep(delay)

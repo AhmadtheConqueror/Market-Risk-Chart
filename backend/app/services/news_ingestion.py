@@ -2,10 +2,13 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 import logging
+import anyio
+from threading import Lock
+from fastapi import HTTPException
 from typing import Any
 from urllib.parse import urlparse
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.models.news import NewsItem
@@ -73,7 +76,32 @@ def _values_equal(left: Any, right: Any) -> bool:
     return left == right
 
 
+_refresh_lock = Lock()
+NEWS_REFRESH_LOCK_ID = 1313167187
+PROVIDER_BUDGET_SECONDS = 45
+
+
 async def refresh_news(db: Session) -> NewsRefreshSummary:
+    """One refresh per database; transaction lock is safe on Supabase poolers."""
+    postgres = db.get_bind().dialect.name == "postgresql"
+    if postgres:
+        acquired = db.execute(text("SELECT pg_try_advisory_xact_lock(:key)"),
+                              {"key": NEWS_REFRESH_LOCK_ID}).scalar_one()
+    else:
+        acquired = _refresh_lock.acquire(blocking=False)
+    if not acquired:
+        raise HTTPException(status_code=409, detail="News refresh already in progress")
+    try:
+        return await _refresh_news(db)
+    except BaseException:
+        db.rollback()  # Also releases PostgreSQL transaction lock on cancellation.
+        raise
+    finally:
+        if not postgres:
+            _refresh_lock.release()
+
+
+async def _refresh_news(db: Session) -> NewsRefreshSummary:
     providers = get_news_providers()
     retrieved_at = datetime.now(timezone.utc)
     total_found = stored = updated = unchanged = failed = 0
@@ -91,7 +119,8 @@ async def refresh_news(db: Session) -> NewsRefreshSummary:
         token = news_audit.set(audit)
         result = NewsSourceResult(source_key=provider.source_key, status="failed")
         try:
-            items = await provider.fetch()
+            with anyio.fail_after(PROVIDER_BUDGET_SECONDS):
+                items = await provider.fetch()
             total_found += len(items)
             result.items_found = len(items)
             unique = {item.url: item for item in items}
@@ -100,6 +129,8 @@ async def refresh_news(db: Session) -> NewsRefreshSummary:
             cutoff = retrieved_at - timedelta(days=7)
             result.fresh_items = sum(item.published_at >= cutoff for item in unique.values())
             result.excluded_stale = len(unique) - result.fresh_items
+            result.fresh_by_region = {region: sum(item.region == region and item.published_at >= cutoff
+                for item in unique.values()) for region in ("international", "africa", "nigeria")}
             # A failed source rolls back only its own changes, never other providers.
             with db.begin_nested():
                 for item in unique.values():
@@ -117,7 +148,7 @@ async def refresh_news(db: Session) -> NewsRefreshSummary:
             parser_rejected = sum(audit["rejections"].values())
             validation_rejected = result.rejected
             result.rejected = parser_rejected
-            if not items and (audit["candidates"] or request_errors):
+            if not items and (request_errors or any(reason not in {"not_energy_relevant", "duplicate_url"} for reason in audit["rejections"])):
                 result.status = "failed"
                 result.error = "No valid dated energy stories; inspect requests and rejection reasons."
                 failed += 1
@@ -140,6 +171,10 @@ async def refresh_news(db: Session) -> NewsRefreshSummary:
             result.requests = audit["requests"]
             result.latest_source_publication = audit.get("latest_source_publication", result.latest_publication)
             result.candidates = audit["candidates"]
+            result.outcome = ("provider_unavailable" if result.status == "failed" else
+                "articles_available" if result.fresh_items else
+                "articles_rejected_irrelevant" if audit["rejections"].get("not_energy_relevant") else
+                "no_recent_articles")
             result.rejection_reasons = audit["rejections"]
             result.rejected = sum(audit["rejections"].values())
             if result.error:

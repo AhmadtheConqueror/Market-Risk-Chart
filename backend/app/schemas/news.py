@@ -15,6 +15,7 @@ class NewsItemResponse(BaseModel):
     id: int
     source_key: str
     source_name: str
+    source_type: str = "unclassified"
     title: str
     url: str
     published_at: datetime
@@ -30,9 +31,12 @@ class NewsLatestResponse(BaseModel):
     items: list[NewsItemResponse] = Field(default_factory=list)
     generated_at: datetime
     last_refresh: dict | None = None
+    diagnostics: dict = Field(default_factory=dict)
 
 
 class NewsSourceResult(BaseModel):
+    outcome: str = "not_attempted"
+    fresh_by_region: dict[str, int] = Field(default_factory=dict)
     source_key: str
     status: str
     items_found: int = 0

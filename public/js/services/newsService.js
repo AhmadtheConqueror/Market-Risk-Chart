@@ -17,7 +17,8 @@
     const response = await global.fetch(`${endpoint}${params.toString() ? `?${params}` : ""}`, {
       method: "GET",
       credentials: "same-origin",
-      headers: { Accept: "application/json" }
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(12000)
     });
     if (!response.ok) {
       throw new Error(`News service returned HTTP ${response.status}.`);

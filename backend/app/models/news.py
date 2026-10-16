@@ -38,3 +38,9 @@ class NewsItem(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now
     )
+
+
+    @property
+    def source_type(self) -> str:
+        from app.providers.news.base import classify_source_type
+        return classify_source_type(self.source_key, self.metadata_json)

@@ -380,6 +380,9 @@
   let newsLoading = false;
   // "idle" | "loading" | "success" | "partial" | "failed"
   let newsRefreshStatus = "idle";
+  let newsLoadPromise = null;
+  let newsAudit = null;
+  let newsRegionErrors = {};
   let newsRefreshMessage = "";
   let newsLastRefreshed = null;
   let selectedWorkbookFile = null;
@@ -445,13 +448,15 @@
     categoryRiskOverrides = loadCategoryRiskOverrides();
 
     if (apiModeEnabled()) {
-      await loadLatestNews().catch(() => { newsRefreshStatus = "failed"; newsRefreshMessage = "Refresh failed · unable to load news"; });
-      await syncAdminSession();
+      // News and administrator session availability cannot hold critical rendering.
+      newsLoading = true;
+      syncAdminSession();
     }
 
     if (apiModeEnabled()) global.addEventListener("administrator-session-changed", syncAdminSession);
     bindControls();
     renderDashboard(activeDashboardData);
+    if (apiModeEnabled()) loadLatestNews().catch(() => {}).finally(_repaintNewsSection);
     updateAdminUi();
     loadLatestAIAnalysis();
     initCalendarBackendSync();
@@ -792,6 +797,7 @@
   }
 
   function applyNewsRefreshSummary(summary) {
+    newsAudit = summary;
     const sources = summary.sources || [];
     const total = summary.sources_requested || 0;
     const succeeded = summary.sources_succeeded || 0;
@@ -801,18 +807,55 @@
     newsLastRefreshed = new Date(summary.retrieved_at || Date.now());
   }
 
-  async function loadLatestNews() {
+  function loadLatestNews() {
+    if (newsLoadPromise) return newsLoadPromise;
     newsLoading = true;
-    try {
-      // Fetch per region so a busy source cannot crowd another region out of a global limit.
-      const responses = await Promise.all(["international", "africa", "nigeria"].map(region =>
+    newsLoadPromise = (async () => {
+      const regions = ["international", "africa", "nigeria"];
+      const results = await Promise.allSettled(regions.map(region =>
         global.OilRiskNewsService.getLatestNews({ region, limit: 3 })));
-      newsItems = responses.flatMap(response => Array.isArray(response?.items) ? response.items : []);
-      if (responses[0]?.last_refresh) applyNewsRefreshSummary(responses[0].last_refresh);
-    } finally {
+      let failures = 0;
+      results.forEach((result, index) => {
+        const region = regions[index];
+        if (result.status === "fulfilled") {
+          const response = result.value;
+          newsItems = newsItems.filter(item => item.region !== region).concat(
+            Array.isArray(response?.items) ? response.items : []);
+          delete newsRegionErrors[region];
+          if (response?.last_refresh) applyNewsRefreshSummary(response.last_refresh);
+        } else {
+          failures++;
+          newsRegionErrors[region] = true;
+        }
+      });
+      if (failures) {
+        newsRefreshStatus = failures === regions.length ? "failed" : "partial";
+        newsRefreshMessage = failures === regions.length ? "News unavailable; previously loaded stories retained" : "Partial news load; some regions unavailable";
+        throw new Error("Some news regions unavailable");
+      }
+    })().finally(() => {
       newsLoaded = true;
       newsLoading = false;
-    }
+      newsLoadPromise = null;
+    });
+    return newsLoadPromise;
+  }
+
+  function newsSourceType(item) {
+    const defaults = {eia: "official_institutional_release", opec: "official_institutional_release",
+      nuprc: "official_institutional_release", nnpc: "official_company_release",
+      african_energy_chamber: "industry_organization_release"};
+    const labels = {official_institutional_release: "Official institutional release",
+      official_company_release: "Official company release", industry_organization_release: "Industry organization release",
+      independent_media_reporting: "Independent media reporting", commentary_analysis: "Commentary or analysis"};
+    return labels[item.source_type || defaults[item.source_key]] || "Source type unclassified";
+  }
+
+  function newsEmptyState(region) {
+    if (newsLoading) return "Loading news...";
+    if (newsRegionErrors[region]) return "News unavailable; retry loading this section.";
+    if (!newsAudit) return "Refresh not yet attempted. No recent verified stories loaded.";
+    return "No recent verified stories";
   }
 
   // Re-renders only the news actions bar and news content — no full dashboard repaint.
@@ -1874,12 +1917,17 @@
     ];
     const byRegion = new Map(regions.map(([key]) => [key, []]));
     newsItems.forEach((item) => {
-      if (byRegion.has(item.region)) {
+      if (byRegion.has(item.region) && Date.parse(item.published_at) >= Date.now() - 7 * 86400000) {
         byRegion.get(item.region).push(item);
       }
     });
 
+    const auditSources = newsAudit?.sources || [];
+    const health = auditSources.length ? `<details class="news-source-health"><summary>Provider health and filtering</summary><ul>${auditSources.map(source =>
+      `<li>${escapeHtml(source.source_key)}: ${escapeHtml(source.status)} · ${escapeHtml(({provider_unavailable: "Provider unavailable", articles_rejected_irrelevant: "Articles rejected as irrelevant", no_recent_articles: "No recent articles", articles_available: "Recent articles available"})[source.outcome] || "See audit counts")} · Fresh: ${Number(source.fresh_items || 0)} · Stale: ${Number(source.excluded_stale || 0)} · Irrelevant rejected: ${Number(source.rejection_reasons?.not_energy_relevant || 0)}</li>`).join("")}</ul><small>Provider-wide counts; not counts for an individual region.</small></details>` : "";
     return `
+      ${newsLoading ? '<p role="status">Loading news...</p>' : ""}
+      ${health}
       <div class="briefing-content verified-news-content">
         ${regions.map(([key, label]) => {
           const items = (byRegion.get(key) || [])
@@ -1892,7 +1940,7 @@
                 <div class="news-region-title-group">
                   <span class="news-region-badge region-${key}">${label}</span>
                 </div>
-                <span class="news-region-count">${items.length} ${items.length === 1 ? "story" : "stories"}</span>
+                <span class="news-region-count">${newsLoading ? "Loading" : `${items.length} ${items.length === 1 ? "story" : "stories"}`}</span>
               </div>
               <ul class="briefing-list verified-news-list news-items-list">
                 ${items.length ? items.map((item) => {
@@ -1901,13 +1949,13 @@
                   <li class="news-item-card">
                     <a class="news-headline" href="${escapeAttribute(item.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.title)}</a>
                     <div class="news-meta">
-                      <span class="news-source">${escapeHtml(item.source_name)}</span>
+                      <span class="news-source">${escapeHtml(item.source_name)}</span><span class="news-source-type">${escapeHtml(newsSourceType(item))}</span>
                       <span class="news-meta-sep" aria-hidden="true">·</span>
-                      <span class="news-date">${escapeHtml(formatDate(item.published_at))}</span>
+                      <span class="news-date">${escapeHtml(new Date(item.published_at).toLocaleString("en-GB", {timeZone: "Africa/Lagos"}))} WAT</span>
                     </div>
                     ${topicLabel ? `<div class="news-tag-row"><span class="news-topic-tag tag-${escapeHtml(categoryClass(topicLabel))}">${escapeHtml(topicLabel)}</span></div>` : ""}
                   </li>
-                `;}).join("") : `<li class="empty-state">No recent verified stories</li>`}
+                `;}).join("") : `<li class="empty-state">${escapeHtml(newsEmptyState(key))}</li>`}
               </ul>
             </section>
           `;
