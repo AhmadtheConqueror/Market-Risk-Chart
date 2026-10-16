@@ -2206,3 +2206,20 @@ test("Risk Advisor evidence navigation loads the referenced saved run without re
  assert.equal(calls.length,1);assert.equal(calls[0].url,"/api/intelligence/synthesis/11");assert.equal(calls[0].options.method,undefined);
  assert.equal(h.nodes.synthesisWindow.value,"custom");assert.equal(h.nodes.synthesisStart.value,fixture.window_start);assert.match(h.nodes.synthesisStatus.textContent,/Risk Advisor provenance/);
 });
+
+
+test("Admin historical import reports date and counts and reloads historical analytics", () => {
+  const source = fs.readFileSync(path.join(__dirname, "..", "dashboard.js"), "utf8");
+  assert.match(source, /await global\.OilRiskHistoricalAnalytics\?\.load\(\)/);
+  for (const label of ["Historical rows inserted", "Historical rows updated/unchanged", "Latest historical assessment", "Mapped historical instruments"]) {
+    assert.ok(source.includes(label));
+  }
+  const result = globalThis.OilRiskExcelImportUi.successState("refreshed.xlsx", {
+    rows_stored: 168, rows_updated: 2488, date_range: {from: "2025-01-02", to: "2026-10-14"},
+    instruments_affected: ["brent", "naphtha", "gasoil", "gasoline", "forcados", "wti", "jet"]
+  });
+  assert.equal(result.summary.rowsStored, 168);
+  assert.equal(result.summary.rowsUpdated, 2488);
+  assert.equal(result.summary.dateTo, "2026-10-14");
+  assert.equal(result.summary.instruments.length, 7);
+});

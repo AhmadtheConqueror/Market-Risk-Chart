@@ -89,8 +89,18 @@ def parse_historical_workbook(file_bytes: bytes):
                     value/factor if factor else value,factor,ws.title)
             histories.append((history,local_rows,local_rejected))
         if histories:
-            # Prefer the longest authoritative copy. Never concatenate worksheet copies.
+            # Retain the longer approved history, then overlay materialized results
+            # for this exact Platts symbol. Date keys deduplicate copied worksheets;
+            # no API observations or workbook-calculated spreads enter this path.
             history,local_rows,local_rejected = max(histories,key=lambda h:(len(h[0]),max(h[0],default=date.min)))
+            selected_market = history is histories[0][0]
+            history = dict(history)
+            if candidates and candidates[0][0].title == "Market Risk":
+                market_history, market_rows, market_rejected = histories[0]
+                history.update(market_history)
+                if not selected_market:
+                    local_rows += market_rows
+                    local_rejected += market_rejected
             selected.extend(history[d] for d in sorted(history))
             rows_read += local_rows
             rejected += local_rejected

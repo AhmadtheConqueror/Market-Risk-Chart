@@ -242,7 +242,11 @@ async def import_excel_market_data(
                     if key not in {"instrument_id","provider","provider_symbol","assessment_date"}})
             db.execute(statement)
     db.commit()
-    return MarketImportSummary(provider="platts_excel",rows_read=summary["rows_read"],rows_valid=summary["rows_valid"],
+    return MarketImportSummary(provider="platts_excel",
+        historical_rows_inserted=stored, historical_rows_updated_or_unchanged=updated,
+        latest_historical_assessment_date=summary["date_range"]["to"],
+        mapped_historical_instruments=summary["instruments_affected"],
+        rows_read=summary["rows_read"],rows_valid=summary["rows_valid"],
         rows_stored=stored,rows_updated=updated,rows_rejected=summary["rows_rejected"],
         instruments_affected=summary["instruments_affected"],date_range=summary["date_range"],
         errors=summary["errors"],uploaded_at=uploaded_at.isoformat())

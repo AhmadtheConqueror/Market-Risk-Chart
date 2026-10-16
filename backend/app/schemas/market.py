@@ -112,6 +112,10 @@ class MarketRefreshResponse(BaseModel):
 
 
 class MarketImportSummary(BaseModel):
+    historical_rows_inserted: int = 0
+    historical_rows_updated_or_unchanged: int = 0
+    latest_historical_assessment_date: str | None = None
+    mapped_historical_instruments: list[str] = []
     rows_read: int
     rows_valid: int
     rows_stored: int

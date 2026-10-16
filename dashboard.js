@@ -972,6 +972,7 @@
       renderDashboard(activeDashboardData);
       renderAdminPanel();
       setExcelUploadState(uploadUi.successState(file.name, summary));
+      await global.OilRiskHistoricalAnalytics?.load();
       setDataMessage(`Workbook imported successfully: ${file.name}`);
     } catch (error) {
       const failure = uploadUi.failureState(file.name, error);
@@ -1029,11 +1030,12 @@
         <dl class="excel-upload-summary">
           <div><dt>Rows read</dt><dd>${summary.rowsRead}</dd></div>
           <div><dt>Valid observations</dt><dd>${summary.rowsValid}</dd></div>
-          <div><dt>Stored</dt><dd>${summary.rowsStored}</dd></div>
-          <div><dt>Updated</dt><dd>${summary.rowsUpdated}</dd></div>
+          <div><dt>Historical rows inserted</dt><dd>${summary.rowsStored}</dd></div>
+          <div><dt>Historical rows updated/unchanged</dt><dd>${summary.rowsUpdated}</dd></div>
           <div><dt>Rejected</dt><dd>${summary.rowsRejected}</dd></div>
-          <div><dt>Instruments affected</dt><dd>${escapeHtml(instruments)}</dd></div>
+          <div><dt>Mapped historical instruments</dt><dd>${escapeHtml(instruments)}</dd></div>
           <div><dt>Date range</dt><dd>${dateRange}</dd></div>
+          <div><dt>Latest historical assessment</dt><dd>${escapeHtml(summary.dateTo || "--")}</dd></div>
         </dl>
       `;
       return;

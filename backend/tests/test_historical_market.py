@@ -59,7 +59,7 @@ def test_historical_import_is_separate_idempotent_and_preserves_provenance(clien
     assert first.json()["rows_rejected"]>=2
     result=client.get("/api/market/historical").json()
     series={s["instrument"]:s for s in result["instruments"]}
-    assert series["jet"]["observation_count"]==6
+    assert series["jet"]["observation_count"]==10
     assert series["jet"]["spread"]==pytest.approx(779/7.7892-100)
     assert series["jet"]["spread"]>0
     assert series["naphtha"]["latest_date"]=="2026-08-12"
@@ -102,3 +102,75 @@ def test_audited_workbook_longer_copies_selected_once():
         assert rows[-1].conversion_factor==HISTORICAL_MAPPING[key][3]
         if rows[-1].conversion_factor:
             assert rows[-1].converted_value==pytest.approx(rows[-1].value/rows[-1].conversion_factor)
+
+
+def test_refresh_materialized_results_retains_history_and_api_series(client, seed_test_data, db_session):
+    from app.services.historical_market import persist_history
+    from hashlib import sha256
+    payload = sample_workbook()
+    original, _ = parse_market_workbook(payload)
+    from dataclasses import replace
+    original.append(replace(next(o for o in original if o.instrument_key == "brent"), assessment_date=date(2025, 1, 2)))
+    # Seed older observations, including history outside the materialized table.
+    persist_history(db_session, original, payload, "baseline.xlsx", datetime.now(timezone.utc))
+    db_session.commit()
+    before_count = db_session.scalar(select(func.count()).select_from(HistoricalMarketObservation))
+    baseline = {s["instrument"]: s for s in client.get("/api/market/historical").json()["instruments"]}
+    assert baseline["brent"]["latest_date"] == "2026-09-10"
+    api_before = [(r.id, r.provider, r.provider_symbol, r.value, r.assessment_date)
+                  for r in db_session.scalars(select(MarketObservation)).all() if r.provider != "internal_excel"]
+    from openpyxl import load_workbook
+    workbook = load_workbook(BytesIO(payload)); market = workbook["Market Risk"]
+    for col, (key, mapping) in enumerate(HISTORICAL_MAPPING.items(), 7):
+        market.cell(22, 6, datetime(2026, 10, 14))
+        market.cell(22, col, 100 if key == "brent" else 900)
+    # A null on a valid assessment must not fabricate an observation or zero.
+    market.cell(27, 6, datetime(2026, 10, 13))
+    market.cell(27, 8).value = None
+    # Invalid date with numeric values must not produce observations.
+    market.cell(28, 6, "not a date"); market.cell(28, 8, 123)
+    output = BytesIO(); workbook.save(output); refreshed = output.getvalue()
+    response = client.post("/api/market/import-excel", files={"workbook":("refreshed.xlsx", refreshed)})
+    assert response.status_code == 200, response.text
+    assert response.json()["historical_rows_inserted"] == 7
+    assert response.json()["latest_historical_assessment_date"] == "2026-10-14"
+    assert set(response.json()["mapped_historical_instruments"]) == set(HISTORICAL_MAPPING)
+    series = {s["instrument"]: s for s in client.get("/api/market/historical").json()["instruments"]}
+    assert all(s["latest_date"] == "2026-10-14" for s in series.values())
+    for key, (symbol, _, unit, factor, *_) in HISTORICAL_MAPPING.items():
+        latest = db_session.scalar(select(HistoricalMarketObservation).where(
+            HistoricalMarketObservation.instrument_key == key,
+            HistoricalMarketObservation.assessment_date == date(2026, 10, 14)))
+        assert latest.provider_symbol == symbol and latest.native_unit == unit
+        assert latest.worksheet == "Market Risk"
+        assert latest.workbook_sha256 == sha256(refreshed).hexdigest()
+        assert float(latest.conversion_factor) == pytest.approx(factor) if factor else latest.conversion_factor is None
+        if factor:
+            assert float(latest.converted_value) == pytest.approx(900 / factor)
+            assert series[key]["spread"] == pytest.approx(900 / factor - 100)
+    after_count = db_session.scalar(select(func.count()).select_from(HistoricalMarketObservation))
+    assert after_count == before_count + 7
+    assert db_session.scalar(select(HistoricalMarketObservation).where(
+        HistoricalMarketObservation.instrument_key == "brent",
+        HistoricalMarketObservation.assessment_date == date(2025, 1, 2))) is not None
+    assert db_session.scalar(select(HistoricalMarketObservation).where(
+        HistoricalMarketObservation.instrument_key == "jet",
+        HistoricalMarketObservation.assessment_date == date(2026, 9, 10))) is not None
+    assert db_session.scalar(select(HistoricalMarketObservation).where(
+        HistoricalMarketObservation.instrument_key == "naphtha",
+        HistoricalMarketObservation.assessment_date == date(2026, 10, 13))) is None
+    repeat = client.post("/api/market/import-excel", files={"workbook":("refreshed.xlsx", refreshed)}).json()
+    assert repeat["historical_rows_inserted"] == 0
+    assert repeat["historical_rows_updated_or_unchanged"] == response.json()["rows_valid"]
+    assert db_session.scalar(select(func.count()).select_from(HistoricalMarketObservation)) == after_count
+    assert api_before == [(r.id, r.provider, r.provider_symbol, r.value, r.assessment_date)
+        for r in db_session.scalars(select(MarketObservation)).all() if r.provider != "internal_excel"]
+
+
+def test_unmapped_daily_template_cannot_populate_history(client):
+    workbook = Workbook(); sheet = workbook.active; sheet.title = "Market Risk"
+    sheet.append(["AssessDate", "UNRELATED_SYMBOL"]); sheet.append([datetime(2026, 10, 14), 12])
+    output = BytesIO(); workbook.save(output)
+    response = client.post("/api/market/import-excel", files={"workbook":("Daily_Historical_Template1.xlsx", output.getvalue())})
+    assert response.status_code == 400
+    assert all(s["observation_count"] == 0 for s in client.get("/api/market/historical").json()["instruments"])
