@@ -143,7 +143,16 @@
       return null;
     }
 
-    const configuredFactor = Number(global.OilRiskConfig.PRODUCT_CONVERSIONS[instrumentId]);
+    const official = latest.provider === "platts_excel";
+    const configuredFactor = Number(official
+      ? global.OilRiskConfig.BBL_PER_MT[latest.providerSymbol]
+      : global.OilRiskConfig.PRODUCT_CONVERSIONS[instrumentId]);
+    if (official) {
+      const sameDateBrent = observationsForInstrument(observations, "brent").find(o =>
+        o.provider === "platts_excel" && o.providerSymbol === "PCAAS00"
+        && o.assessmentDate === latest.assessmentDate);
+      brentPrice = sameDateBrent ? sameDateBrent.value : NaN;
+    }
     const observationFactor = Number(latest.barrelsPerMT);
     const barrelsPerMT = Number.isFinite(observationFactor) && observationFactor > 0
       ? observationFactor
@@ -153,7 +162,7 @@
       ? NaN : Number(latest.convertedValue);
     const unit = String(latest.unit || instrument.unit).toLowerCase().replace(/\s+/g, "");
     let convertedPrice = NaN;
-    if (Number.isFinite(workbookConvertedPrice)) {
+    if (!official && Number.isFinite(workbookConvertedPrice)) {
       convertedPrice = workbookConvertedPrice;
     } else if (Number.isFinite(originalPrice)) {
       if (["gallon", "usd/gallon", "$/gal", "gal"].includes(unit)) convertedPrice = originalPrice * 42;

@@ -1,11 +1,9 @@
 from datetime import date, timedelta
 from typing import Any
 
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.dashboard import get_dashboard_snapshot
-from app.models.market import MarketInstrument, MarketObservation
 from app.services.calendar_ingestion import get_calendar_events_query
 from app.services.news_ingestion import get_recent_news
 from app.services.source_resolution import get_source_policy
@@ -23,56 +21,27 @@ def build_dashboard_ai_context(db: Session) -> dict[str, Any]:
     payload.pop("ai_analysis", None)
 
     stats_by_key = {item["instrument_id"]: item for item in payload.get("market_stats", [])}
-    instruments = db.scalars(
-        select(MarketInstrument).where(MarketInstrument.enabled.is_(True)).order_by(MarketInstrument.id)
-    ).all()
-
+    from app.services.historical_market import load_historical_series
+    from app.services.official_market import historical_observation
+    grouped = load_historical_series(db)
     market_context: list[dict[str, Any]] = []
-    for instrument in instruments:
-        stat = dict(stats_by_key.get(instrument.instrument_key, {}))
-        policy = get_source_policy(instrument.instrument_key)
-        observations = db.scalars(
-            select(MarketObservation)
-            .where(MarketObservation.instrument_id == instrument.id)
-            .order_by(MarketObservation.assessment_date.asc())
-        ).all()
-        valid_dates = [record.assessment_date for record in observations]
-        latest_date = max(valid_dates) if valid_dates else None
+    for key, stat_item in stats_by_key.items():
+        stat = dict(stat_item)
+        stat.pop("history", None)  # Preserve the existing bounded 30D analysis context below.
+        policy = get_source_policy(key)
+        observations = grouped[key]
+        latest_date = observations[-1].assessment_date if observations else None
         start_date = latest_date - timedelta(days=29) if latest_date else None
-        history = [
-            {
-                "assessment_date": record.assessment_date.isoformat(),
-                "value": float(record.value),
-                "unit": record.unit,
-                "provider": record.provider,
-                "provider_symbol": record.provider_symbol,
-                "source_timestamp": record.source_timestamp.isoformat() if record.source_timestamp else None,
-                "retrieved_at": record.retrieved_at.isoformat() if record.retrieved_at else None,
-            }
-            for record in observations
-            if start_date is not None and start_date <= record.assessment_date <= latest_date
-        ]
-        stat["history_30d"] = history
-        stat["canonical_instrument_key"] = instrument.instrument_key
-        stat["source_record_count"] = len(observations)
-
-        # Enrich with source policy metadata so Gemini can correctly attribute
-        # prices and avoid describing proxy API series as physical assessments.
-        if policy:
-            stat["source_provider"] = policy.preferred_provider
-            stat["source_symbol"] = policy.preferred_symbol
-            stat["benchmark_name"] = policy.benchmark_definition
-            stat["benchmark_status"] = policy.benchmark_status  # "confirmed" | "proxy"
-            stat["canonical_unit"] = policy.canonical_unit       # "barrel" | "metric_ton" | "tonne" | "gallon"
-            stat["source_label"] = policy.source_label
-        else:
-            stat["source_provider"] = instrument.provider
-            stat["source_symbol"] = instrument.provider_symbol
-            stat["benchmark_name"] = instrument.display_name
-            stat["benchmark_status"] = "unknown"
-            stat["canonical_unit"] = instrument.unit
-            stat["source_label"] = instrument.provider
-
+        stat["history_30d"] = [
+            {"assessment_date": row.assessment_date.isoformat(), "value": float(row.native_value),
+             "unit": row.native_unit, "provider": row.provider, "provider_symbol": row.provider_symbol,
+             "source_timestamp": historical_observation(row).source_timestamp,
+             "retrieved_at": row.imported_at.isoformat()}
+            for row in observations if start_date and row.assessment_date >= start_date]
+        stat.update(canonical_instrument_key=key, source_record_count=len(observations),
+            source_provider=policy.preferred_provider, source_symbol=policy.preferred_symbol,
+            benchmark_name=policy.benchmark_definition, benchmark_status=stat["benchmark_status"],
+            canonical_unit=policy.canonical_unit, source_label=policy.source_label)
         market_context.append(stat)
 
     payload["market_stats"] = market_context

@@ -6,19 +6,20 @@ from hashlib import sha256
 from io import BytesIO
 from pathlib import Path
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, load_only
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from openpyxl import load_workbook
 from app.models.historical import HistoricalMarketObservation as Historical
+from app.services.calculations import calculate_instrument_stats
 from app.services.excel_ingestion import ExcelObservation, ExcelValidationError, parse_excel_date, parse_nullable_number
 
 # These definitions are intentionally independent of API source policies/defaults.
 HISTORICAL_MAPPING = {
     "brent": ("PCAAS00", "Platts Dated Brent", "USD/BBL", None, "PAAAM00_PCAAS00_naphtha_crack_s", 3),
-    "naphtha": ("PAAAM00", "Platts Naphtha FOB Rotterdam", "USD/MT", 8.9000, "PAAAM00_PCAAS00_naphtha_crack_s", 2),
-    "gasoil": ("AAVJI00", "Platts Gasoil 0.1%S FOB Med", "USD/MT", 7.3137, "AAVJI00_PCAAS00_Gasoi_crak_spre", 2),
-    "gasoline": ("PGABM00", "Platts Gasoline Prem 10ppmS FOB AR Barge", "USD/MT", 8.5286, "PGABM00_PCAAS00_gasoline_crack_", 3),
+    "naphtha": ("PAAAM00", "Platts Naphtha FOB Rotterdam Barge", "USD/MT", 8.9000, "PAAAM00_PCAAS00_naphtha_crack_s", 2),
+    "gasoil": ("AAVJI00", "Platts Gasoil 0.1%S FOB Med Cargo", "USD/MT", 7.3137, "AAVJI00_PCAAS00_Gasoi_crak_spre", 2),
+    "gasoline": ("PGABM00", "Platts Premium Unleaded 10ppm FOB AR Barge", "USD/MT", 8.5286, "PGABM00_PCAAS00_gasoline_crack_", 3),
     "forcados": ("PCABC00", "Platts Forcados FOB Nigeria", "USD/BBL", None, "Market Risk", None),
     "wti": ("PCACG00", "Platts WTI Cushing Mo01", "USD/BBL", None, "Market Risk", None),
     "jet": ("PJAAV00", "Platts Jet FOB NWE Cargo", "USD/MT", 7.7892, "PCAAS00_minus_PJAAV00_jet_crack", 3),
@@ -136,13 +137,31 @@ def persist_history(session: Session, observations, file_bytes: bytes, filename:
     return stored,len(records)-stored
 
 
+def load_historical_series(session: Session, *, include_provenance: bool = False):
+    """The sole persisted lineage for the seven official KPIs. No API fallback."""
+    # Do not transfer workbook hashes/descriptions for every point on every card
+    # read. Full provenance is persisted; only latest provenance is displayed.
+    rows = session.scalars(select(Historical).options(load_only(
+        Historical.instrument_key, Historical.provider, Historical.provider_symbol,
+        Historical.assessment_date, Historical.native_value, Historical.native_unit,
+        Historical.imported_at)).where(Historical.provider == "platts_excel")
+        .order_by(Historical.assessment_date)).all()
+    grouped = {key: [] for key in HISTORICAL_MAPPING}
+    for row in rows:
+        if (row.instrument_key in grouped
+                and row.provider_symbol == HISTORICAL_MAPPING[row.instrument_key][0]
+                and row.native_unit.upper() == HISTORICAL_MAPPING[row.instrument_key][2]):
+            grouped[row.instrument_key].append(row)
+    if include_provenance:
+        latest_ids = [history[-1].id for history in grouped.values() if history]
+        if latest_ids:
+            session.scalars(select(Historical).where(Historical.id.in_(latest_ids))).all()
+    return grouped
+
+
 def historical_analytics(session: Session, today: date | None = None):
     today=today or datetime.now(timezone.utc).date()
-    rows=session.scalars(select(Historical).where(Historical.provider=="platts_excel").order_by(Historical.assessment_date)).all()
-    grouped={key:[] for key in HISTORICAL_MAPPING}
-    for row in rows:
-        if row.instrument_key in grouped and row.provider_symbol==HISTORICAL_MAPPING[row.instrument_key][0]:
-            grouped[row.instrument_key].append(row)
+    grouped = load_historical_series(session, include_provenance=True)
     brent={r.assessment_date:float(r.native_value) for r in grouped["brent"]}
     instruments=[]
     for key,(symbol,label,unit,factor,_,_) in HISTORICAL_MAPPING.items():
@@ -154,13 +173,17 @@ def historical_analytics(session: Session, today: date | None = None):
             subset=window(days)
             return float(subset[-1].native_value-subset[0].native_value) if len(subset)>1 else None
         previous=history[-2] if len(history)>1 else None
-        instruments.append(dict(instrument=key,label=label,provider="platts_excel",symbol=symbol,unit=unit,
+        stats = calculate_instrument_stats([
+            {"assessment_date": r.assessment_date, "value": r.native_value} for r in history
+        ], window_days=90, min_history_points=60)
+        instruments.append(dict(z_score=stats["z_score"], mean_90=stats["mean_90"],
+            std_dev_90=stats["std_dev_90"], history_status=stats["history_status"], instrument=key,label=label,provider="platts_excel",symbol=symbol,unit=unit,
             latest_date=str(latest.assessment_date) if latest else None,
             latest=float(latest.native_value) if latest else None,
             change_1d=float(latest.native_value-previous.native_value) if previous else None,
             change_30d=change(30),change_90d=change(90),count_30d=len(window(30)),count_90d=len(window(90)),
             observation_count=len(history),freshness="stale" if latest and (today-latest.assessment_date).days>3 else "fresh" if latest else "unavailable",
-            factor=factor,spread=(float(latest.converted_value)-brent[latest.assessment_date]) if latest and factor and latest.assessment_date in brent else None,
+            factor=factor,spread=(float(latest.native_value)/factor-brent[latest.assessment_date]) if latest and factor and latest.assessment_date in brent else None,
             workbook=latest.workbook_source if latest else None,worksheet=latest.worksheet if latest else None,
             imported_at=latest.imported_at.isoformat() if latest else None,
             points=[dict(date=str(r.assessment_date),value=float(r.native_value)) for r in window(90)]))

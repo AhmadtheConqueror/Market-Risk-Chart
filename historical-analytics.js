@@ -35,8 +35,9 @@
       <p class="historical-disclosure"><strong>${escape(series.freshness.toUpperCase())}</strong> · As of ${escape(series.latest_date)} · ${escape(series.unit)} · ${escape(series.symbol)}<br>
       Source: Platts Excel · ${series.observation_count} valid observations · 30D: ${series.count_30d} · 90D: ${series.count_90d}</p>
       <div class="historical-kpis">${metrics.map(([label,value], index) => `<div><span>${label}</span><strong>${number(value)}</strong><small>${escape(series.unit)}</small>${index === 0 ? `<time class="historical-assessment-date" datetime="${escape(series.latest_date)}">Assessment date: ${escape(series.latest_date)}</time>` : ""}</div>`).join("")}</div>
+      <p class="historical-disclosure">90D z-score: ${finite(series.z_score) ? number(series.z_score) + "σ" : "Unavailable — requires 60 valid observations and nonzero sample standard deviation"} · ${escape(series.count_90d)} valid 90D observations</p>
       ${chart(series.points, series.unit)}${spread}
-      <p class="historical-footnote">1D/30D/90D changes are relative to this historical series’ own latest observation date (${escape(series.latest_date)}), not the current API price or today. Changes are absolute native-unit differences; 1D uses the previous available assessment, and 30D/90D use the first valid assessment inside each calendar window. Stale history remains available.</p>
+      <p class="historical-footnote">1D/30D/90D changes are relative to this historical series’ own latest observation date (${escape(series.latest_date)}), not today’s date. Changes are absolute native-unit differences; 1D uses the previous available assessment, and 30D/90D use the first valid assessment inside each calendar window. Stale history remains available.</p>
       <details><summary>Historical provenance</summary><p>Workbook: ${escape(series.workbook)}<br>Worksheet: ${escape(series.worksheet)}<br>Imported: ${escape(series.imported_at)}<br>These histories are never concatenated with API/proxy observations.</p></details>`;
   }
 

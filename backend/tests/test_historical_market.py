@@ -71,10 +71,9 @@ def test_historical_import_is_separate_idempotent_and_preserves_provenance(clien
     rows=db_session.scalars(select(HistoricalMarketObservation)).all()
     assert all(r.provider=="platts_excel" and r.workbook_source=="history.xlsx" and len(r.workbook_sha256)==64 and r.imported_at for r in rows)
     after=client.get("/api/market/latest").json()
-    exclude_forcados=lambda v:[o for o in v["observations"] if o["instrumentId"]!="forcados"]
-    # Freshness ages naturally advance, so compare identity/value rather than wall-clock age.
-    identity=lambda v:[(o["instrumentId"],o["providerSymbol"],o["value"],o["assessmentDate"]) for o in exclude_forcados(v)]
-    assert identity(before)==identity(after)
+    assert before["observations"] == []  # API fixture rows cannot populate official KPIs.
+    assert len(after["observations"]) == 7
+    assert all(o["provider"] == "platts_excel" for o in after["observations"])
     count=len(rows)
     second=client.post("/api/market/import-excel",files={"workbook":("history.xlsx",payload)})
     assert second.status_code==200
@@ -137,6 +136,12 @@ def test_refresh_materialized_results_retains_history_and_api_series(client, see
     assert set(response.json()["mapped_historical_instruments"]) == set(HISTORICAL_MAPPING)
     series = {s["instrument"]: s for s in client.get("/api/market/historical").json()["instruments"]}
     assert all(s["latest_date"] == "2026-10-14" for s in series.values())
+    official = {s["instrument_id"]: s for s in client.get("/api/dashboard/snapshot").json()["market_stats"]}
+    for key in HISTORICAL_MAPPING:
+        assert official[key]["latest_date"] == series[key]["latest_date"]
+        assert official[key]["current_value"] == series[key]["latest"]
+        assert official[key]["provider_symbol"] == series[key]["symbol"]
+        assert official[key]["z_score"] == series[key]["z_score"]
     for key, (symbol, _, unit, factor, *_) in HISTORICAL_MAPPING.items():
         latest = db_session.scalar(select(HistoricalMarketObservation).where(
             HistoricalMarketObservation.instrument_key == key,

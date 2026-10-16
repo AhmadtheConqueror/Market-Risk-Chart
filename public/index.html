@@ -57,7 +57,7 @@
 
   <div id="apiUnavailableBanner" class="api-unavailable-banner" hidden>
     <span class="api-banner-icon">⚠</span>
-    <span id="apiUnavailableMessage">Live market data temporarily unavailable.</span>
+    <span id="apiUnavailableMessage">Platts market assessments temporarily unavailable.</span>
   </div>
 
   <main class="dashboard-shell">
@@ -116,11 +116,11 @@
       <div class="section-head">
         <div>
           <h2>Market Risk</h2>
-          <p>Key market benchmarks with current movement and 90-day statistical position</p>
+          <p>Platts workbook assessments with 1D movement and 90-day statistical position</p>
         </div>
         <div class="market-head-actions">
-          <button id="marketRefreshButton" class="market-refresh-btn" type="button" title="Fetch latest market data from OilPriceAPI via backend">
-            <span class="refresh-icon">↻</span> <span id="marketRefreshLabel">Refresh Market Data</span>
+          <button id="marketRefreshButton" class="market-refresh-btn" type="button" title="Reload persisted Platts assessments; upload a refreshed workbook in Admin for newer assessments">
+            <span class="refresh-icon">↻</span> <span id="marketRefreshLabel">Reload Assessments</span>
           </button>
           <span id="marketWindowNote" class="section-tag">90 calendar-day window</span>
         </div>
@@ -131,7 +131,7 @@
       <div class="analytics-grid">
         <article id="spreads" class="panel historical-analytics-panel">
           <div class="chart-title">
-            <div><h3>Crude &amp; Product Analytics</h3><p>Platts historical assessments · separate from current API markets</p></div>
+            <div><h3>Crude &amp; Product Analytics</h3><p>Exact Platts workbook assessments · same series as the seven KPI cards</p></div>
           </div>
           <div class="historical-controls">
             <label for="historicalInstrument">Historical instrument</label>

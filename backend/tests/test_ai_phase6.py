@@ -148,11 +148,11 @@ def test_gemini_provider_classifies_provider_status_errors():
         assert expected in GeminiProvider._safe_error_message(error).lower()
 
 
-def test_ai_context_is_server_built_and_contains_history(seed_test_data, db_session):
+def test_ai_context_is_server_built_and_contains_history(seed_platts_data, db_session):
     context = build_dashboard_ai_context(db_session)
 
     brent = next(item for item in context["market_stats"] if item["instrument_id"] == "brent")
-    assert brent["provider_symbol"] == "TEST_BRENT"
+    assert brent["provider_symbol"] == "PCAAS00"
     assert brent["history_30d"]
     assert brent["history_30d"][0]["assessment_date"] == date(2026, 8, 26).isoformat()
     assert context["analysis_rules"]["market_values_are_backend_authoritative"] is True

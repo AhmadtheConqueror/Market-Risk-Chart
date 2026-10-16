@@ -8,7 +8,7 @@ from typing import Generator
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -171,3 +171,21 @@ def seed_test_data(db_session: Session) -> dict[str, MarketInstrument]:
 
     db_session.commit()
     return inst_map
+
+
+@pytest.fixture
+def seed_platts_data(seed_test_data, db_session):
+    """Synthetic exact-series history, separate from API provider fixtures."""
+    from app.models.historical import HistoricalMarketObservation
+    from app.services.historical_market import HISTORICAL_MAPPING
+    for key, instrument in seed_test_data.items():
+        symbol, label, unit, factor, *_ = HISTORICAL_MAPPING[key]
+        for row in db_session.scalars(select(MarketObservation).where(MarketObservation.instrument_id == instrument.id)).all():
+            db_session.add(HistoricalMarketObservation(instrument_key=key, provider="platts_excel",
+                provider_symbol=symbol, benchmark_definition=label, native_unit=unit,
+                assessment_date=row.assessment_date, native_value=row.value,
+                converted_value=float(row.value)/factor if factor else row.value,
+                conversion_factor=factor, workbook_source="SYNTHETIC_TEST_ONLY.xlsx",
+                workbook_sha256="0"*64, worksheet="Market Risk", imported_at=datetime.now(timezone.utc)))
+    db_session.flush()
+    return seed_test_data

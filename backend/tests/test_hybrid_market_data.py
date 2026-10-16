@@ -159,26 +159,13 @@ def test_excel_import_resolves_forcados_as_excel_preferred(client, seed_test_dat
     assert payload["rows_rejected"] == 1
     assert set(payload["instruments_affected"]) == {"forcados", "naphtha", "gasoil", "gasoline", "jet"}
 
-    instrument = db_session.scalars(
-        select(MarketInstrument).where(MarketInstrument.instrument_key == "forcados")
-    ).one()
-    observations = db_session.scalars(
-        select(MarketObservation)
-        .where(
-            MarketObservation.instrument_id == instrument.id,
-            MarketObservation.provider == "internal_excel",
-            MarketObservation.provider_symbol == "PCABC00",
-        )
-        .order_by(MarketObservation.assessment_date)
-    ).all()
-    assert len(observations) == 2
-    assert observations[-1].assessment_date == date(2026, 9, 10)
-    assert observations[-1].unit == "USD/BBL"
+    # No second workbook-current copy is written to the API observation table.
+    assert db_session.scalars(select(MarketObservation).where(MarketObservation.provider == "internal_excel")).all() == []
 
     snapshot = client.get("/api/dashboard/snapshot")
     assert snapshot.status_code == 200
     stats = {item["instrument_id"]: item for item in snapshot.json()["market_stats"]}
-    assert stats["forcados"]["provider"] == "internal_excel"
+    assert stats["forcados"]["provider"] == "platts_excel"
     assert stats["forcados"]["provider_symbol"] == "PCABC00"
     assert stats["forcados"]["latest_date"] == "2026-09-10"
     assert stats["forcados"]["current_value"] is not None
@@ -203,7 +190,7 @@ def test_excel_import_is_idempotent_and_selected_in_history(client, seed_test_da
 
     history = client.get("/api/market/history?instrument=forcados&days=90")
     assert history.status_code == 200
-    assert history.json()["observations"][0]["provider"] == "internal_excel"
+    assert history.json()["observations"][0]["provider"] == "platts_excel"
     assert history.json()["observations"][0]["sourceType"] == "excel"
 
 
@@ -216,24 +203,24 @@ def test_gemini_context_uses_resolved_excel_source(client, seed_test_data, db_se
 
     context = build_dashboard_ai_context(db_session)
     forcados = next(item for item in context["market_stats"] if item["instrument_id"] == "forcados")
-    assert forcados["provider"] == "internal_excel"
+    assert forcados["provider"] == "platts_excel"
     assert forcados["provider_symbol"] == "PCABC00"
-    assert forcados["benchmark_definition"] == "Forcados FOB Nigeria"
+    assert forcados["benchmark_definition"] == "Platts Forcados FOB Nigeria"
     assert forcados["benchmark_status"] == "confirmed"
 
-    # Refined products remain OilPriceAPI proxies per source policy
+    # Refined products share the exact workbook lineage.
     naphtha = next(item for item in context["market_stats"] if item["instrument_id"] == "naphtha")
-    assert naphtha["benchmark_status"] == "proxy"
-    assert naphtha["source_provider"] == "oilpriceapi"
-    assert naphtha["source_symbol"] == "NAPHTHA_USD"
+    assert naphtha["benchmark_status"] == "confirmed"
+    assert naphtha["source_provider"] == "platts_excel"
+    assert naphtha["source_symbol"] == "PAAAM00"
 
 
-def test_source_policy_proxy_and_confirmed_status():
+def test_official_source_policy_is_platts_confirmed_for_all_seven():
     from app.services.source_resolution import SOURCE_POLICIES
     assert SOURCE_POLICIES["brent"].benchmark_status == "confirmed"
     assert SOURCE_POLICIES["wti"].benchmark_status == "confirmed"
     assert SOURCE_POLICIES["forcados"].benchmark_status == "confirmed"
-    assert SOURCE_POLICIES["naphtha"].benchmark_status == "proxy"
-    assert SOURCE_POLICIES["gasoil"].benchmark_status == "proxy"
-    assert SOURCE_POLICIES["gasoline"].benchmark_status == "proxy"
-    assert SOURCE_POLICIES["jet"].benchmark_status == "proxy"
+    assert SOURCE_POLICIES["naphtha"].benchmark_status == "confirmed"
+    assert SOURCE_POLICIES["gasoil"].benchmark_status == "confirmed"
+    assert SOURCE_POLICIES["gasoline"].benchmark_status == "confirmed"
+    assert SOURCE_POLICIES["jet"].benchmark_status == "confirmed"

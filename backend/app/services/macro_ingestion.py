@@ -6,7 +6,10 @@ import logging
 import re
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, func, or_, and_
+from sqlalchemy.sql.functions import FunctionElement
+from sqlalchemy.ext.compiler import compiles
+from sqlalchemy.types import Integer
 from sqlalchemy.orm import Session
 
 from app.models.macro import MacroIndicator, utc_now
@@ -336,31 +339,73 @@ def macro_response(record) -> MacroIndicatorResponse:
     )
 
 
+class MacroPeriodRank(FunctionElement):
+    """Exact chronological key for parse_period_approx_date, evaluated in DB."""
+    type = Integer()
+    inherit_cache = True
+
+
+@compiles(MacroPeriodRank, "sqlite")
+def _sqlite_period_rank(element, compiler, **kw):
+    return "snapshot_period_rank(" + compiler.process(list(element.clauses)[0], **kw) + ")"
+
+
+@compiles(MacroPeriodRank, "postgresql")
+def _postgres_period_rank(element, compiler, **kw):
+    p = "regexp_replace(" + compiler.process(list(element.clauses)[0], **kw) + ", '^[[:space:]]+|[[:space:]]+$', '', 'g')"
+    year = f"CAST(right({p}, 4) AS integer)"
+    iso_year = f"CAST(left({p}, 4) AS integer)"
+    month = f"CAST(substr({p}, 6, 2) AS integer)"
+    day = f"CAST(right({p}, 2) AS integer)"
+    month_name = f"lower(regexp_replace({p}, '[[:space:]]+[0-9]{{4}}$', ''))"
+    named_month = "CASE " + month_name + " " + " ".join(
+        f"WHEN '{name}' THEN {number}" for name, number in MONTH_MAP.items()) + " ELSE 1 END"
+    # Guard make_date before calling it, including invalid ISO leap/month days.
+    return f"""(CASE
+      WHEN {p} ~ '^[0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}$' THEN
+        CASE WHEN {iso_year} BETWEEN 1 AND 9999 AND {month} BETWEEN 1 AND 12 THEN
+          CASE WHEN {day} BETWEEN 1 AND extract(day FROM
+            (make_date({iso_year}, {month}, 1) + interval '1 month - 1 day'))
+          THEN {iso_year}*10000 + {month}*100 + {day} ELSE 10101 END ELSE 10101 END
+      WHEN {p} ~ '^[0-9]{{4}}$' THEN CAST({p} AS integer)*10000 + 1231
+      WHEN {p} ~ '^[A-Za-z]+[[:space:]]+[0-9]{{4}}$'
+        THEN {year}*10000 + ({named_month})*100 + 28
+      WHEN {p} ~* '^Q[1-4][[:space:]]+[0-9]{{4}}$'
+        THEN {year}*10000 + CAST(substr({p}, 2, 1) AS integer)*300 + 28
+      ELSE 10101 END)"""
+
+
 def get_latest_macro_indicators(db: Session) -> list[MacroIndicatorResponse]:
     """
     Retrieve the latest verified period for each canonical indicator.
     Returns honest unavailable state if an indicator is not yet stored.
     """
     results: list[MacroIndicatorResponse] = []
-    periods = db.execute(select(MacroIndicator.id, MacroIndicator.indicator_key,
-        MacroIndicator.reporting_period, MacroIndicator.published_at).where(
-        MacroIndicator.indicator_key.in_(CANONICAL_MACRO_CONFIG))).all()
-    grouped = {key: [] for key in CANONICAL_MACRO_CONFIG}
-    for period in periods:
-        grouped[period.indicator_key].append(period)
-    selected = {}
+    # PostgreSQL parses periods in SQL; SQLite registers the same pure parser
+    # for fixture parity. No history rows or period dictionary leave the DB.
+    if db.get_bind().dialect.name == "sqlite":
+        def period_rank_value(period):
+            parsed = parse_period_approx_date(period)
+            return parsed.year * 10000 + parsed.month * 100 + parsed.day if parsed else 10101
+        db.connection().connection.driver_connection.create_function(
+            "snapshot_period_rank", 1, period_rank_value, deterministic=True)
+    period_rank = MacroPeriodRank(MacroIndicator.reporting_period)
+    forecast_keys = [key for key, config in CANONICAL_MACRO_CONFIG.items()
+                     if config["frequency"] in {"weo", "outlook"}]
+    eligible = or_(MacroIndicator.indicator_key.not_in(forecast_keys), and_(
+        MacroIndicator.indicator_key.in_(forecast_keys),
+        MacroIndicator.reporting_period == str(datetime.now(timezone.utc).year)))
+    ranked = select(MacroIndicator.id, func.row_number().over(
+        partition_by=MacroIndicator.indicator_key,
+        order_by=(period_rank.desc(),
+                  func.coalesce(MacroIndicator.published_at, datetime.min.replace(tzinfo=timezone.utc)).desc(),
+                  MacroIndicator.id.desc())).label("position")).where(
+        MacroIndicator.indicator_key.in_(CANONICAL_MACRO_CONFIG), eligible).subquery()
+    chosen = db.scalars(select(MacroIndicator).join(ranked,
+        MacroIndicator.id == ranked.c.id).where(ranked.c.position == 1)).all()
+    records = {record.indicator_key: record for record in chosen}
     for key, config in CANONICAL_MACRO_CONFIG.items():
-        candidates = grouped[key]
-        if config["frequency"] in {"weo", "outlook"}:
-            candidates = [r for r in candidates if r.reporting_period == str(datetime.now(timezone.utc).year)]
-        candidate = max(candidates, key=period_sort_key, default=None)
-        if candidate:
-            selected[key] = candidate.id
-    # Two bounded queries serve the complete section, regardless of history length.
-    records = {record.id: record for record in db.scalars(select(MacroIndicator).where(
-        MacroIndicator.id.in_(selected.values()))).all()}
-    for key, config in CANONICAL_MACRO_CONFIG.items():
-        record = records.get(selected.get(key))
+        record = records.get(key)
 
         if record is not None:
             freshness = determine_freshness(

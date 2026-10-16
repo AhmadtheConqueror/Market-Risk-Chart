@@ -17,7 +17,7 @@ from app.db.session import get_session_factory
 from app.models.market import MarketInstrument, MarketObservation
 from app.providers.market.oilpriceapi import OilPriceAPIProvider, OilPriceAPIError
 from app.services.market_ingestion import ingest_latest_market_data
-from app.services.source_resolution import get_source_policy
+from app.services.source_resolution import get_api_source_policy
 
 
 async def main() -> None:
@@ -51,7 +51,7 @@ async def main() -> None:
         ).all()
 
         for inst in instruments:
-            policy = get_source_policy(inst.instrument_key)
+            policy = get_api_source_policy(inst.instrument_key)
 
             # Get latest observation for this instrument from its preferred source
             if policy:

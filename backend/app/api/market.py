@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime, time, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
-from sqlalchemy import desc, select
-from sqlalchemy.dialects.postgresql import insert as postgresql_insert
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -25,10 +23,8 @@ from app.services.calculations import PRODUCT_CONVERSIONS, is_gallon_unit
 from app.services.market_ingestion import (
     backfill_all_instruments,
     backfill_history,
-    ingest_latest_market_data,
 )
 from app.services.excel_ingestion import EXCEL_PROVIDER, ExcelValidationError, parse_market_workbook
-from app.services.source_resolution import get_source_policy, resolve_observations
 
 router = APIRouter(prefix="/market", tags=["market"])
 
@@ -88,32 +84,20 @@ def get_instruments(db: Annotated[Session, Depends(get_db)]) -> list[MarketInstr
         .order_by(MarketInstrument.id)
     )
     instruments = db.scalars(stmt).all()
-    return [MarketInstrumentResponse.model_validate(inst) for inst in instruments]
+    from app.services.historical_market import HISTORICAL_MAPPING
+    return [MarketInstrumentResponse.model_validate(inst).model_copy(update={
+        "display_name": HISTORICAL_MAPPING[inst.instrument_key][1], "provider": "platts_excel",
+        "provider_symbol": HISTORICAL_MAPPING[inst.instrument_key][0], "unit": HISTORICAL_MAPPING[inst.instrument_key][2]
+    }) for inst in instruments if inst.instrument_key in HISTORICAL_MAPPING]
 
 
 @router.get("/latest", response_model=MarketLatestResponse)
 def get_latest_market_data(db: Annotated[Session, Depends(get_db)]) -> MarketLatestResponse:
-    instruments = db.scalars(select(MarketInstrument).where(MarketInstrument.enabled.is_(True))).all()
-
-    observations: list[NormalizedObservation] = []
-    for inst in instruments:
-        stmt = (
-            select(MarketObservation)
-            .where(MarketObservation.instrument_id == inst.id)
-            .order_by(desc(MarketObservation.assessment_date), desc(MarketObservation.id))
-            .limit(1)
-        )
-        records = db.scalars(
-            select(MarketObservation)
-            .where(MarketObservation.instrument_id == inst.id)
-            .order_by(MarketObservation.assessment_date.asc(), MarketObservation.id.asc())
-        ).all()
-        selected, _, _ = resolve_observations(inst, records)
-        latest_obs = selected[-1] if selected else None
-        if latest_obs:
-            observations.append(observation_to_normalized(latest_obs, inst.instrument_key))
-
-    return MarketLatestResponse(observations=observations)
+    from app.services.historical_market import load_historical_series
+    from app.services.official_market import historical_observation
+    grouped = load_historical_series(db)
+    return MarketLatestResponse(observations=[historical_observation(rows[-1])
+        for rows in grouped.values() if rows])
 
 
 @router.get("/history", response_model=MarketHistoryResponse)
@@ -126,62 +110,27 @@ def get_market_history(
     if inst_key.startswith("mr_"):
         inst_key = inst_key.removeprefix("mr_")
 
-    stmt = select(MarketInstrument).where(MarketInstrument.instrument_key == inst_key)
-    inst = db.scalars(stmt).first()
-    if not inst:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Instrument '{instrument}' not found.",
-        )
-
-    records = db.scalars(
-        select(MarketObservation)
-        .where(MarketObservation.instrument_id == inst.id)
-        .order_by(MarketObservation.assessment_date.asc(), MarketObservation.id.asc())
-    ).all()
-    selected, _, resolution_status = resolve_observations(inst, records)
-    latest_date = selected[-1].assessment_date if selected else None
-
-    if not latest_date:
-        return MarketHistoryResponse(
-            instrument=inst_key,
-            days=days,
-            total_observations=0,
-            history_status="unavailable" if resolution_status != "preferred_unavailable" else "source_unavailable",
-            observations=[],
-            history_points=[],
-        )
-
-    start_date = latest_date - timedelta(days=days - 1)
-    observations = [
-        obs for obs in selected
-        if start_date <= obs.assessment_date <= latest_date
-    ]
-
-    norm_obs = [observation_to_normalized(obs, inst_key) for obs in observations]
-    history_pts = [HistoryPoint(date=obs.assessment_date.isoformat(), value=float(obs.value)) for obs in observations]
-
-    # Evaluate sufficiency for the requested days
-    history_status = "sufficient" if len(observations) >= min(60, days * 0.7) else "insufficient_history"
-
-    return MarketHistoryResponse(
-        instrument=inst_key,
-        days=days,
-        total_observations=len(norm_obs),
-        history_status=history_status,
-        observations=norm_obs,
-        history_points=history_pts,
-    )
+    from app.services.historical_market import HISTORICAL_MAPPING, load_historical_series
+    from app.services.official_market import historical_observation
+    if inst_key not in HISTORICAL_MAPPING:
+        raise HTTPException(status_code=404, detail=f"Instrument '{instrument}' not found.")
+    history = load_historical_series(db)[inst_key]
+    latest_date = history[-1].assessment_date if history else None
+    selected = [row for row in history if row.assessment_date >= latest_date - timedelta(days=days-1)] if history else []
+    return MarketHistoryResponse(instrument=inst_key, days=days, total_observations=len(selected),
+        history_status="unavailable" if not selected else "sufficient" if len(selected)>=min(60,days*0.7) else "insufficient_history",
+        observations=[historical_observation(row) for row in selected],
+        history_points=[HistoryPoint(date=row.assessment_date.isoformat(), value=float(row.native_value)) for row in selected])
 
 
 @router.post("/refresh", response_model=MarketRefreshResponse)
 async def refresh_market_data(db: Annotated[Session, Depends(get_db)]) -> MarketRefreshResponse:
-    """Refreshes market observations from the active provider for all mapped instruments.
-
-    Idempotently upserts daily assessments in Supabase.
-    """
-    summary = await ingest_latest_market_data(db)
-    return MarketRefreshResponse.model_validate(summary)
+    """Reload official persisted assessments; collection requires an Admin workbook upload."""
+    from app.services.historical_market import HISTORICAL_MAPPING
+    return MarketRefreshResponse(provider="platts_excel", requested=0, stored=0,
+        skipped=7, refreshedAt=datetime.now(timezone.utc).isoformat(),
+        instruments=list(HISTORICAL_MAPPING),
+        message="Platts assessments reloaded. Upload a refreshed workbook in Admin to update them.")
 
 
 @router.post("/backfill")
@@ -222,25 +171,7 @@ async def import_excel_market_data(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     uploaded_at = datetime.now(timezone.utc)
     stored, updated = persist_history(db, observations, file_bytes, workbook.filename, uploaded_at)
-    # Forcados alone retains the approved current workbook-backed continuity.
-    instrument = db.scalars(select(MarketInstrument).where(MarketInstrument.instrument_key=="forcados", MarketInstrument.enabled.is_(True))).first()
-    if instrument:
-        instrument.provider = EXCEL_PROVIDER
-        instrument.provider_symbol = "PCABC00"
-        records = [{"instrument_id":instrument.id,"assessment_date":item.assessment_date,
-            "value":item.value,"unit":item.unit,"provider":EXCEL_PROVIDER,
-            "provider_symbol":item.provider_symbol,
-            "source_timestamp":datetime.combine(item.assessment_date,time.min,tzinfo=timezone.utc),
-            "retrieved_at":uploaded_at,"benchmark_definition":"Forcados FOB Nigeria"}
-            for item in observations if item.instrument_key=="forcados"]
-        insert = postgresql_insert if db.get_bind().dialect.name=="postgresql" else sqlite_insert
-        for offset in range(0,len(records),100):
-            statement = insert(MarketObservation).values(records[offset:offset+100])
-            statement = statement.on_conflict_do_update(
-                index_elements=["instrument_id","provider","provider_symbol","assessment_date"],
-                set_={key:getattr(statement.excluded,key) for key in records[0]
-                    if key not in {"instrument_id","provider","provider_symbol","assessment_date"}})
-            db.execute(statement)
+    # The historical table is now the canonical current + historical store for all seven.
     db.commit()
     return MarketImportSummary(provider="platts_excel",
         historical_rows_inserted=stored, historical_rows_updated_or_unchanged=updated,

@@ -19,7 +19,7 @@ class SourcePolicy:
     canonical_unit: str = "barrel"
 
 
-SOURCE_POLICIES: dict[str, SourcePolicy] = {
+API_SOURCE_POLICIES: dict[str, SourcePolicy] = {
     # ── Direct / confirmed benchmarks ──────────────────────────────────────────
     "brent": SourcePolicy(
         "oilpriceapi", "BRENT_CRUDE_USD",
@@ -81,17 +81,30 @@ SOURCE_POLICIES: dict[str, SourcePolicy] = {
 }
 
 
+# Official policy is independent of provider collection metadata in market_instruments.
+from app.services.historical_market import HISTORICAL_MAPPING
+SOURCE_POLICIES = {
+    key: SourcePolicy("platts_excel", symbol, "Platts workbook", label,
+                      benchmark_status="confirmed", canonical_unit=unit)
+    for key, (symbol, label, unit, *_) in HISTORICAL_MAPPING.items()
+}
+
+
 def get_source_policy(instrument_key: str) -> SourcePolicy | None:
     return SOURCE_POLICIES.get(instrument_key)
+
+
+def get_api_source_policy(instrument_key: str) -> SourcePolicy | None:
+    return API_SOURCE_POLICIES.get(instrument_key)
 
 
 def resolve_observations(
     instrument: MarketInstrument,
     observations: Iterable[MarketObservation],
 ) -> tuple[list[MarketObservation], SourcePolicy | None, str]:
-    """Select exactly one configured source series; never cross-source merge."""
+    """Legacy API infrastructure only; official KPI reads use historical persistence."""
     records = list(observations)
-    policy = get_source_policy(instrument.instrument_key)
+    policy = get_api_source_policy(instrument.instrument_key)
     if policy:
         selected = [
             obs for obs in records

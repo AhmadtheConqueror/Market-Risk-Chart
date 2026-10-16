@@ -258,9 +258,9 @@ const MOCK_API_SNAPSHOT = {
     {
       instrument_id: "brent",
       display_name: "Dated Brent",
-      provider_display_name: "ICE Brent Crude Futures",
-      provider: "OilPriceAPI",
-      provider_symbol: "BRENT_CRUDE_USD",
+      provider_display_name: "Platts Dated Brent",
+      provider: "platts_excel",
+      provider_symbol: "PCAAS00",
       current_value: 74.25,
       previous_value: 73.80,
       change: 0.45,
@@ -281,9 +281,9 @@ const MOCK_API_SNAPSHOT = {
     {
       instrument_id: "wti",
       display_name: "WTI Cushing",
-      provider_display_name: "WTI Crude Oil Futures",
-      provider: "OilPriceAPI",
-      provider_symbol: "WTI_USD",
+      provider_display_name: "Platts WTI Cushing Mo01",
+      provider: "platts_excel",
+      provider_symbol: "PCACG00",
       current_value: 70.10,
       previous_value: 69.80,
       change: 0.30,
@@ -305,8 +305,8 @@ const MOCK_API_SNAPSHOT = {
       instrument_id: "naphtha",
       display_name: "Naphtha",
       provider_display_name: "Naphtha",
-      provider: "OilPriceAPI",
-      provider_symbol: "NAPHTHA_USD",
+      provider: "platts_excel",
+      provider_symbol: "PAAAM00",
       current_value: 535.0,
       previous_value: 530.0,
       change: 5.0,
@@ -318,7 +318,7 @@ const MOCK_API_SNAPSHOT = {
       history_status: "insufficient_history",
       latest_date: "2026-09-24",
       unit: "USD/MT",
-      benchmark_status: "test_proxy",
+      benchmark_status: "confirmed",
       freshness_status: "fresh",
       source_timestamp: "2026-09-24T11:45:00Z",
       retrieved_at: "2026-09-24T12:00:00Z",
@@ -327,9 +327,9 @@ const MOCK_API_SNAPSHOT = {
     {
       instrument_id: "gasoil",
       display_name: "Gasoil",
-      provider_display_name: "ICE Low Sulphur Gasoil Rotterdam",
-      provider: "OilPriceAPI",
-      provider_symbol: "GASOIL_USD",
+      provider_display_name: "Platts Gasoil 0.1%S FOB Med",
+      provider: "platts_excel",
+      provider_symbol: "AAVJI00",
       current_value: 650.0,
       previous_value: 645.0,
       change: 5.0,
@@ -341,7 +341,7 @@ const MOCK_API_SNAPSHOT = {
       history_status: "insufficient_history",
       latest_date: "2026-09-24",
       unit: "USD/MT",
-      benchmark_status: "test_proxy",
+      benchmark_status: "confirmed",
       freshness_status: "fresh",
       source_timestamp: "2026-09-24T11:45:00Z",
       retrieved_at: "2026-09-24T12:00:00Z",
@@ -535,6 +535,13 @@ const MOCK_API_SNAPSHOT = {
   ]
 };
 
+// Synthetic endpoint fixture follows the official policy, including unavailable series.
+MOCK_API_SNAPSHOT.market_stats.forEach(stat => {
+  const definition = globalThis.OilRiskConfig.MARKET_INSTRUMENTS[stat.instrument_id];
+  stat.provider = "platts_excel";
+  stat.provider_symbol = definition.providerSymbol;
+});
+
 test("API snapshot normalization correctly parses backend feed", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (url) => {
@@ -576,7 +583,7 @@ test("API snapshot normalization correctly parses backend feed", async () => {
     );
 
     assert.equal(prepared.source.type, "api");
-    assert.equal(prepared.source.label, "OilPriceAPI");
+    assert.equal(prepared.source.label, "Platts workbook");
     assert.equal(prepared.apiUnavailable, false);
     assert.ok(prepared.backendSnapshot);
     assert.equal(Object.keys(prepared.backendMarketStats).length, 7);
@@ -620,34 +627,22 @@ test("macro normalization returns unavailable values without converting null to 
   assert.equal(normalized[1].value, null);
 });
 
-test("live Brent and WTI rendering uses accurate provider labels without Dated Brent futures confusion", () => {
-  const brentStat = MOCK_API_SNAPSHOT.market_stats.find((s) => s.instrument_id === "brent");
-  const wtiStat = MOCK_API_SNAPSHOT.market_stats.find((s) => s.instrument_id === "wti");
-
-  // Brent checks
-  assert.equal(brentStat.provider_display_name, "ICE Brent Crude Futures");
-  assert.notEqual(brentStat.provider_display_name, "Dated Brent");
-  assert.equal(brentStat.provider_symbol, "BRENT_CRUDE_USD");
-  assert.equal(brentStat.benchmark_status, "confirmed");
-  assert.equal(brentStat.current_value, 74.25);
-
-  // WTI checks
-  assert.equal(wtiStat.provider_display_name, "WTI Crude Oil Futures");
-  assert.equal(wtiStat.provider_symbol, "WTI_USD");
-  assert.equal(wtiStat.benchmark_status, "confirmed");
-  assert.equal(wtiStat.current_value, 70.10);
+test("official Brent and WTI identify exact Platts physical assessments", () => {
+  const brent = MOCK_API_SNAPSHOT.market_stats.find(s => s.instrument_id === "brent");
+  const wti = MOCK_API_SNAPSHOT.market_stats.find(s => s.instrument_id === "wti");
+  assert.equal(brent.provider_display_name, "Platts Dated Brent");
+  assert.equal(brent.provider_symbol, "PCAAS00");
+  assert.equal(wti.provider_symbol, "PCACG00");
+  assert.equal(brent.provider, "platts_excel");
 });
 
-test("test proxies are explicitly indicated for Naphtha and Gasoil", () => {
-  const naphtha = MOCK_API_SNAPSHOT.market_stats.find((s) => s.instrument_id === "naphtha");
-  const gasoil = MOCK_API_SNAPSHOT.market_stats.find((s) => s.instrument_id === "gasoil");
-
-  assert.equal(naphtha.benchmark_status, "test_proxy");
-  assert.equal(naphtha.provider_symbol, "NAPHTHA_USD");
-
-  assert.equal(gasoil.benchmark_status, "test_proxy");
-  assert.equal(gasoil.provider_display_name, "ICE Low Sulphur Gasoil Rotterdam");
-  assert.equal(gasoil.provider_symbol, "GASOIL_USD");
+test("official refined product metadata uses Platts identifiers rather than API proxies", () => {
+  const naphtha = MOCK_API_SNAPSHOT.market_stats.find(s => s.instrument_id === "naphtha");
+  const gasoil = MOCK_API_SNAPSHOT.market_stats.find(s => s.instrument_id === "gasoil");
+  assert.equal(naphtha.benchmark_status, "confirmed");
+  assert.equal(naphtha.provider_symbol, "PAAAM00");
+  assert.equal(gasoil.benchmark_status, "confirmed");
+  assert.equal(gasoil.provider_symbol, "AAVJI00");
 });
 
 test("unavailable instruments are handled honestly without converting null to zero or leaking legacy values", () => {
@@ -749,8 +744,8 @@ test("API failure with prior session data retains data identified as stale", asy
     assert.equal(prepared.apiUnavailable, true);
     assert.equal(prepared.source.type, "api");
     assert.equal(prepared.source.stale, true);
-    assert.equal(prepared.source.label, "OilPriceAPI (Stale)");
-    assert.equal(prepared.apiErrorMessage, "Live market data temporarily unavailable.");
+    assert.equal(prepared.source.label, "Platts workbook (Stale)");
+    assert.equal(prepared.apiErrorMessage, "Platts market assessments temporarily unavailable.");
     assert.ok(prepared.marketObservations.length > 0);
     assert.equal(prepared.macroIndicators.length, 18);
     assert.equal(prepared.macroIndicators[0].freshness_status, "fresh"); // Preserve valid release-cycle freshness.
@@ -774,7 +769,7 @@ test("API failure without prior session data returns honest unavailable state wi
     assert.equal(prepared.apiUnavailable, true);
     assert.equal(prepared.source.type, "api");
     assert.equal(prepared.source.unavailable, true);
-    assert.equal(prepared.apiErrorMessage, "Live market data temporarily unavailable.");
+    assert.equal(prepared.apiErrorMessage, "Platts market assessments temporarily unavailable.");
     assert.equal(prepared.marketObservations.length, 0);
     assert.equal(prepared.macroIndicators.length, 18);
     assert.equal(prepared.macroIndicators[0].value, null);
@@ -1214,7 +1209,7 @@ function createInterpretationHarness() {
     OilRiskCalendarService: globalThis.OilRiskCalendarService,
     OilRiskData: globalThis.OilRiskData,
     OilRiskAIService: globalThis.OilRiskAIService,
-    OilRiskConfig: { isApiMode: () => false }
+    OilRiskConfig: { ...globalThis.OilRiskConfig, isApiMode: () => false }
   };
   context.window = context;
   const source = fs.readFileSync(require.resolve("../dashboard.js"), "utf8").replace(
@@ -2109,7 +2104,7 @@ test("outlier scan renders every eligible instrument in descending absolute z-sc
 
 test("outlier date and freshness follow backend metadata independently of historical selector",()=>{
  const {hooks,nodes,context,html}=createInterpretationHarness();context.OilRiskConfig.isApiMode=()=>true;require("node:vm").runInNewContext(fs.readFileSync(require.resolve("../risk-engine.js"),"utf8"),context);
- const data={source:{type:"api"},kris:{},backendMarketStats:{forcados:{current_value:111.885,z_score:2.45000656,mean_90:88.064,std_dev_90:9.723,window_count:63,latest_date:"2026-09-10",freshness_status:"stale",benchmark_status:"confirmed",provider_display_name:"Synthetic Forcados",provider_symbol:"PCABC00",provider:"internal_excel"}}};
+ const data={source:{type:"api"},kris:{},backendMarketStats:{forcados:{current_value:111.885,z_score:2.45000656,mean_90:88.064,std_dev_90:9.723,window_count:63,latest_date:"2026-09-10",freshness_status:"stale",benchmark_status:"confirmed",provider_display_name:"Synthetic Forcados",provider_symbol:"PCABC00",provider:"platts_excel"}}};
  const stats=hooks.marketStats(data);assert.equal(stats.length,7);hooks.outlierRender(stats);const before=nodes.outlierScan.innerHTML;
  nodes.historicalInstrument.value="jet";hooks.outlierRender(hooks.marketStats(data));assert.equal(nodes.outlierScan.innerHTML,before);
  assert.match(before,/2026-09-10/);assert.match(before,/>STALE</);assert.match(html,/Market-wide Outlier Scan/);assert.match(html,/90D statistical extremes across monitored KPIs/);
@@ -2119,7 +2114,7 @@ test("historical latest metric identifies the dated Platts assessment and histor
  const series={instrument:"brent",provider:"platts_excel",label:"Platts Dated Brent",symbol:"PCAAS00",latest:100,latest_date:"2026-09-10",freshness:"stale",unit:"USD/bbl",points:[],observation_count:63,count_30d:20,count_90d:63};
  const html=OilRiskHistoricalAnalytics.markup(series);
  assert.match(html,/Last Platts assessment<\/span><strong>100<\/strong>.*Assessment date: 2026-09-10/);
- assert.match(html,/datetime="2026-09-10"/);assert.match(html,/own latest observation date \(2026-09-10\)/);assert.match(html,/not the current API price or today/);assert.match(html,/PCAAS00/);
+ assert.match(html,/datetime="2026-09-10"/);assert.match(html,/own latest observation date \(2026-09-10\)/);assert.match(html,/not today’s date/);assert.match(html,/PCAAS00/);
  assert.equal(OilRiskHistoricalAnalytics.selectSeries({instruments:[{...series,provider:"oilpriceapi"}]},"brent"),undefined);
 });
 
@@ -2222,4 +2217,73 @@ test("Admin historical import reports date and counts and reloads historical ana
   assert.equal(result.summary.rowsUpdated, 2488);
   assert.equal(result.summary.dateTo, "2026-10-14");
   assert.equal(result.summary.instruments.length, 7);
+});
+
+
+test("all seven official cards use exact Platts native assessments and preserve missing values", () => {
+  const {hooks,context}=createInterpretationHarness();context.OilRiskConfig.isApiMode=()=>true;
+  require("node:vm").runInNewContext(fs.readFileSync(require.resolve("../risk-engine.js"),"utf8"),context);
+  const backendMarketStats=Object.fromEntries(Object.values(globalThis.OilRiskConfig.MARKET_INSTRUMENTS).map((d,i)=>[d.id,{
+    instrument_id:d.id,provider:"platts_excel",provider_symbol:d.providerSymbol,provider_display_name:d.providerDisplayName,
+    current_value:i===0?127.545:900,previous_value:i===0?130.52:910,change:i===0?-2.975:-10,unit:d.unit,
+    latest_date:"2026-10-14",benchmark_status:"confirmed",freshness_status:"fresh",z_score:2.45,window_count:63,history_status:"valid"
+  }]));
+  const stats=hooks.marketStats({source:{type:"api"},kris:{},backendMarketStats});
+  assert.equal(stats.length,7);
+  for(const stat of stats){
+    const d=globalThis.OilRiskConfig.MARKET_INSTRUMENTS[stat.key];
+    assert.equal(stat.marketCode,d.providerSymbol);assert.equal(stat.unit,d.unit);
+    assert.match(stat.sourceLineText,/Source: Platts workbook/);assert.doesNotMatch(stat.sourceLineText,/OilPriceAPI|Proxy/);
+    assert.equal(stat.latestObservationDate,"2026-10-14");assert.equal(stat.windowObservationCount,63);assert.equal(stat.zScore,2.45);
+  }
+  backendMarketStats.brent.current_value=null;
+  assert.equal(hooks.marketStats({source:{type:"api"},kris:{},backendMarketStats})[0].latestValue,null);
+});
+
+test("an older API backend cannot leak futures/proxy rows into the official frontend", async () => {
+  const originalFetch=globalThis.fetch;globalThis.OilRiskMarketDataService.clearSessionCache();
+  globalThis.fetch=async()=>({ok:true,status:200,json:async()=>({observations:[{
+    instrumentId:"brent",providerSymbol:"BRENT_CRUDE_USD",provider:"oilpriceapi",name:"ICE futures",
+    value:999,assessmentDate:"2026-10-16",retrievedAt:"2026-10-16T00:00:00Z",unit:"barrel",sourceType:"api"
+  }]})});
+  try {assert.deepEqual(await globalThis.OilRiskMarketDataService.getLatestMarketData(),[]);}
+  finally {globalThis.fetch=originalFetch;globalThis.OilRiskMarketDataService.clearSessionCache();}
+});
+
+test("one observation does not fabricate a previous assessment or 1D change", () => {
+  const data=globalThis.OilRiskData.cloneDashboardData();
+  globalThis.OilRiskMarketDataService.applyObservationsToDashboard(data,[{instrumentId:"brent",provider:"platts_excel",providerSymbol:"PCAAS00",value:127.545,unit:"USD/BBL",assessmentDate:"2026-10-14"}]);
+  assert.equal(data.kris.MR_BRENT.previousValue,null);
+});
+
+
+test("official frontend spreads use raw Platts prices, workbook factors and matching assessment dates", () => {
+  const base={provider:"platts_excel",assessmentDate:"2026-10-14"};
+  const observations=[{...base,instrumentId:"brent",providerSymbol:"PCAAS00",value:127.545,unit:"USD/BBL"},
+    { ...base,instrumentId:"gasoil",providerSymbol:"AAVJI00",value:1445.5,unit:"USD/MT",convertedValue:999}];
+  const spread=globalThis.OilRiskMarketCalculations.calculateProductSpreads(observations)[0];
+  assert.equal(spread.barrelsPerMT,7.3137);
+  assert.ok(Math.abs(spread.difference-(1445.5/7.3137-127.545))<1e-9);
+  observations[0].assessmentDate="2026-10-13";
+  assert.equal(globalThis.OilRiskMarketCalculations.calculateProductSpreads(observations)[0].isComparable,false);
+});
+
+
+test("official card histories and latest values are prepared from one canonical snapshot read", async () => {
+  const originalFetch=globalThis.fetch,calls=[];
+  globalThis.OilRiskMarketDataService.clearSessionCache();
+  const market_stats=Object.values(globalThis.OilRiskConfig.MARKET_INSTRUMENTS).map(d=>({
+    instrument_id:d.id,provider:"platts_excel",provider_symbol:d.providerSymbol,current_value:100,
+    latest_date:"2026-10-14",unit:d.unit,history:[13,14].map(day=>({instrumentId:d.id,provider:"platts_excel",
+      providerSymbol:d.providerSymbol,value:day===14?100:90,unit:d.unit,assessmentDate:`2026-10-${day}`,
+      retrievedAt:"2026-10-15T00:00:00Z",sourceType:"excel"}))
+  }));
+  globalThis.fetch=async url=>{calls.push(String(url));return {ok:true,status:200,json:async()=>({market_stats})};};
+  try {
+    const data=await globalThis.OilRiskMarketDataService.prepareDashboardData(globalThis.OilRiskData.cloneDashboardData());
+    assert.deepEqual(calls,["/api/dashboard/snapshot"]);
+    assert.equal(data.marketObservations.length,14);
+    for(const stat of Object.values(data.backendMarketStats))assert.equal(stat.history.length,2);
+    assert.equal(data.kris.MR_BRENT.currentValue,100);assert.equal(data.kris.MR_BRENT.previousValue,90);
+  } finally {globalThis.fetch=originalFetch;globalThis.OilRiskMarketDataService.clearSessionCache();}
 });

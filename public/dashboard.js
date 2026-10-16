@@ -412,9 +412,9 @@
         activeDashboardData = {
           ...global.dashboardData,
           apiUnavailable: true,
-          apiErrorMessage: "Live market data temporarily unavailable.",
+          apiErrorMessage: "Platts market assessments temporarily unavailable.",
           marketObservations: [],
-          source: { type: "api", label: "OilPriceAPI (Unavailable)", unavailable: true }
+          source: { type: "api", label: "Platts workbook (Unavailable)", unavailable: true }
         };
       } else {
         activeDashboardData = global.OilRiskMarketDataService.prepareLegacyDashboardData(
@@ -554,6 +554,7 @@
           global.OilRiskData.cloneDashboardData(activeDashboardData)
         );
         renderDashboard(activeDashboardData);
+        await global.OilRiskHistoricalAnalytics?.load();
         label.textContent = "Refreshed ✓";
         setTimeout(() => {
           label.textContent = originalText;
@@ -1096,7 +1097,7 @@
     const source = data.source || {};
     const isApi = source.type === "api" || (global.OilRiskConfig && typeof global.OilRiskConfig.isApiMode === "function" && global.OilRiskConfig.isApiMode());
     const sourceLabel = isApi
-      ? (source.stale ? `${source.label || "Market data"} (Stale)` : (source.unavailable ? `${source.label || "Market data"} (Unavailable)` : (source.label || "OilPriceAPI")))
+      ? (source.stale ? `${source.label || "Market data"} (Stale)` : (source.unavailable ? `${source.label || "Market data"} (Unavailable)` : (source.label || "Platts workbook")))
       : (source.label || titleCase(source.type || "Demo"));
     const refreshed = source.refreshedAtFormatted || formatDateTime(source.lastRefreshed) || (lastUploadedFile && lastUploadedFile.uploadedAt) || "--";
 
@@ -1119,7 +1120,7 @@
         banner.hidden = false;
         const msg = document.getElementById("apiUnavailableMessage");
         if (msg) {
-          msg.textContent = data.apiErrorMessage || "Live market data temporarily unavailable.";
+          msg.textContent = data.apiErrorMessage || "Platts market assessments temporarily unavailable.";
         }
       } else {
         banner.hidden = true;
@@ -1164,8 +1165,8 @@
   }
 
   function getInstrumentTypeLabel(stat) {
-    if (stat.key === "forcados") {
-      return "Physical assessment";
+    if (stat.marketCode && ["PCAAS00", "PAAAM00", "AAVJI00", "PGABM00", "PCABC00", "PCACG00", "PJAAV00"].includes(stat.marketCode)) {
+      return "Platts assessment";
     }
     const isProxy = (stat.benchmarkStatus === "test_proxy" || stat.benchmarkStatus === "proxy");
     if (isProxy) {
@@ -1458,7 +1459,7 @@
           <div class="product-top">
             <div class="product-title-group">
               <h3 class="product-name">${escapeHtml(stat.name)}</h3>
-              <span class="product-unit">${escapeHtml(subtitleText)}</span>
+              <span class="product-unit">${escapeHtml(stat.marketCode)} · ${escapeHtml(subtitleText)}</span>
             </div>
             <div class="product-pills">
               <span class="status-pill ${freshnessPillClass}">${escapeHtml(freshnessLabel)}</span>
@@ -1466,9 +1467,11 @@
             </div>
           </div>
           <div class="product-hero">
+            <span class="product-unit">Latest assessment</span>
             <div class="product-price-row">
               ${formatCardPrice(stat)}
             </div>
+            <div class="product-context">Assessment: ${escapeHtml(stat.latestObservationDate || "Unavailable")}</div>
             ${formatCardMovement(stat)}
             <div class="product-context">
               ${formatCardContext(stat)}
@@ -1556,9 +1559,9 @@
       const configInst = (global.OilRiskConfig && global.OilRiskConfig.MARKET_INSTRUMENTS && global.OilRiskConfig.MARKET_INSTRUMENTS[product.key]) || {};
 
       if (isApi) {
-        const isUnavailable = backendStat
-          ? (backendStat.benchmark_status === "unavailable" || backendStat.current_value === null)
-          : (configInst.benchmarkStatus === "unavailable");
+        const isUnavailable = !backendStat || backendStat.benchmark_status === "unavailable"
+          || backendStat.current_value == null || backendStat.provider !== "platts_excel"
+          || backendStat.provider_symbol !== configInst.providerSymbol;
 
         let displayName = product.name;
         if (backendStat && backendStat.provider_display_name) {
@@ -1578,11 +1581,11 @@
         const freshnessStatus = (backendStat && backendStat.freshness_status) || (isUnavailable ? "unavailable" : (data.source && data.source.stale ? "stale" : "fresh"));
         const unavailableReason = (backendStat && backendStat.unavailable_reason) || configInst.unavailableReason || "No approved automated source configured";
         const historyStatus = (backendStat && backendStat.history_status) || "insufficient_history";
-        const providerName = (backendStat && backendStat.provider) || configInst.provider || "OilPriceAPI";
+        const providerName = (backendStat && backendStat.provider) || configInst.provider || "platts_excel";
 
         let sourceLineText = "Automated source not configured";
         if (!isUnavailable && providerSymbol) {
-          const sourceLabel = providerName === "internal_excel" ? "Internal market workbook" : providerName;
+          const sourceLabel = providerName === "platts_excel" ? "Platts workbook" : providerName;
           if (benchmarkStatus === "test_proxy") {
             sourceLineText = `Source: ${sourceLabel} · ${providerSymbol} · Test proxy`;
           } else if (benchmarkStatus === "proxy") {

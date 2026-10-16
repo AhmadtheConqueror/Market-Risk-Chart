@@ -25,7 +25,7 @@ def test_market_instruments_endpoint(client: TestClient, seed_test_data: dict[st
     assert keys == {"brent", "wti", "forcados", "naphtha", "gasoil", "gasoline", "jet"}
 
 
-def test_market_latest_endpoint(client: TestClient, seed_test_data: dict[str, MarketInstrument]):
+def test_market_latest_endpoint(client: TestClient, seed_platts_data: dict[str, MarketInstrument]):
     response = client.get("/api/market/latest")
     assert response.status_code == 200
     data = response.json()
@@ -33,12 +33,13 @@ def test_market_latest_endpoint(client: TestClient, seed_test_data: dict[str, Ma
     assert len(data["observations"]) == 7
 
     brent_obs = next(o for o in data["observations"] if o["instrumentId"] == "brent")
-    assert brent_obs["unit"] == "USD/bbl"
+    assert brent_obs["unit"] == "USD/BBL"
     assert brent_obs["assessmentDate"] == "2026-09-24"
-    assert brent_obs["provider"] == "test_fixture"
+    assert brent_obs["provider"] == "platts_excel"
+    assert brent_obs["providerSymbol"] == "PCAAS00"
 
 
-def test_market_history_endpoint(client: TestClient, seed_test_data: dict[str, MarketInstrument]):
+def test_market_history_endpoint(client: TestClient, seed_platts_data: dict[str, MarketInstrument]):
     response = client.get("/api/market/history?instrument=brent&days=90")
     assert response.status_code == 200
     data = response.json()
@@ -57,7 +58,7 @@ def test_market_history_not_found(client: TestClient, seed_test_data: dict[str, 
     assert response.status_code == 404
 
 
-def test_dashboard_snapshot_endpoint(client: TestClient, seed_test_data: dict[str, MarketInstrument]):
+def test_dashboard_snapshot_endpoint(client: TestClient, seed_platts_data: dict[str, MarketInstrument]):
     response = client.get("/api/dashboard/snapshot")
     assert response.status_code == 200
     data = response.json()

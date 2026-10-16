@@ -12,7 +12,7 @@ from app.models.market import MarketInstrument, MarketObservation
 from app.providers.base import MarketDataProvider
 from app.providers.market.factory import get_market_provider
 from app.providers.market.oilpriceapi import OilPriceAPIProvider
-from app.services.source_resolution import get_source_policy
+from app.services.source_resolution import get_api_source_policy
 
 logger = logging.getLogger(__name__)
 
@@ -115,7 +115,7 @@ async def ingest_latest_market_data(
         instrument
         for instrument in session.scalars(stmt).all()
         if (
-            (policy := get_source_policy(instrument.instrument_key)) is None
+            (policy := get_api_source_policy(instrument.instrument_key)) is None
             or policy.preferred_provider == "oilpriceapi"
         )
     ]
@@ -201,7 +201,7 @@ async def backfill_history(
     Uses 'past_year' by default to ensure sufficient historical coverage (at least 60 observations)
     for 90-day statistical calculations without lowering thresholds or blending sources.
     """
-    policy = get_source_policy(instrument.instrument_key)
+    policy = get_api_source_policy(instrument.instrument_key)
     if policy and policy.preferred_provider != "oilpriceapi":
         return {
             "instrument": instrument.instrument_key,
@@ -268,7 +268,7 @@ async def backfill_all_instruments(
     instruments = [
         inst
         for inst in session.scalars(stmt).all()
-        if (policy := get_source_policy(inst.instrument_key)) is None
+        if (policy := get_api_source_policy(inst.instrument_key)) is None
         or policy.preferred_provider == "oilpriceapi"
     ]
 

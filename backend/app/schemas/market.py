@@ -59,6 +59,7 @@ class MarketHistoryResponse(BaseModel):
 
 
 class InstrumentStatsResponse(BaseModel):
+    history: list[NormalizedObservation] = []
     instrument_id: str
     display_name: str
     current_value: float | None = None

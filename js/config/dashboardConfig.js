@@ -11,100 +11,55 @@
 
   const MARKET_INSTRUMENTS = Object.freeze({
     brent: Object.freeze({
-      id: "brent",
-      displayName: "Dated Brent",
-      canonicalName: "Dated Brent",
-      providerDisplayName: "ICE Brent Crude Futures",
-      providerSymbol: "BRENT_CRUDE_USD",
-      currentProviderSymbol: "BRENT_CRUDE_USD",
-      provider: "oilpriceapi",
-      benchmarkStatus: "confirmed",
-      unit: "USD/bbl",
-      enabled: true
+      id: "brent", displayName: "Dated Brent", canonicalName: "Dated Brent",
+      providerDisplayName: "Platts Dated Brent", providerSymbol: "PCAAS00",
+      currentProviderSymbol: "PCAAS00", provider: "platts_excel",
+      benchmarkStatus: "confirmed", unit: "USD/bbl", enabled: true
     }),
     wti: Object.freeze({
-      id: "wti",
-      displayName: "WTI Cushing",
-      canonicalName: "WTI Cushing",
-      providerDisplayName: "WTI Crude Oil Futures",
-      providerSymbol: "WTI_USD",
-      currentProviderSymbol: "WTI_USD",
-      provider: "oilpriceapi",
-      benchmarkStatus: "confirmed",
-      unit: "USD/bbl",
-      enabled: true
+      id: "wti", displayName: "WTI Cushing Mo01", canonicalName: "WTI Cushing Mo01",
+      providerDisplayName: "Platts WTI Cushing Mo01", providerSymbol: "PCACG00",
+      currentProviderSymbol: "PCACG00", provider: "platts_excel",
+      benchmarkStatus: "confirmed", unit: "USD/bbl", enabled: true
     }),
     forcados: Object.freeze({
-      id: "forcados",
-      displayName: "Forcados",
-      canonicalName: "Forcados",
-      providerDisplayName: "Forcados Blend",
-      providerSymbol: null,
-      currentProviderSymbol: null,
-      provider: null,
-      benchmarkStatus: "unavailable",
-      unavailableReason: "No approved automated source configured",
-      unit: "USD/bbl",
-      enabled: true
+      id: "forcados", displayName: "Forcados FOB Nigeria", canonicalName: "Forcados FOB Nigeria",
+      providerDisplayName: "Platts Forcados FOB Nigeria", providerSymbol: "PCABC00",
+      currentProviderSymbol: "PCABC00", provider: "platts_excel",
+      benchmarkStatus: "confirmed", unit: "USD/bbl", enabled: true
     }),
     naphtha: Object.freeze({
-      id: "naphtha",
-      displayName: "Naphtha",
-      canonicalName: "Naphtha",
-      providerDisplayName: "Naphtha",
-      providerSymbol: "NAPHTHA_USD",
-      currentProviderSymbol: "NAPHTHA_USD",
-      provider: "oilpriceapi",
-      benchmarkStatus: "test_proxy",
-      unit: "USD/mt",
-      enabled: true
+      id: "naphtha", displayName: "Naphtha FOB Rotterdam Barge", canonicalName: "Naphtha FOB Rotterdam Barge",
+      providerDisplayName: "Platts Naphtha FOB Rotterdam Barge", providerSymbol: "PAAAM00",
+      currentProviderSymbol: "PAAAM00", provider: "platts_excel",
+      benchmarkStatus: "confirmed", unit: "USD/mt", enabled: true
     }),
     gasoil: Object.freeze({
-      id: "gasoil",
-      displayName: "Gasoil",
-      canonicalName: "Gasoil",
-      providerDisplayName: "ICE Low Sulphur Gasoil Rotterdam",
-      providerSymbol: "GASOIL_USD",
-      currentProviderSymbol: "GASOIL_USD",
-      provider: "oilpriceapi",
-      benchmarkStatus: "test_proxy",
-      unit: "USD/mt",
-      enabled: true
+      id: "gasoil", displayName: "Gasoil 0.1%S FOB Med Cargo", canonicalName: "Gasoil 0.1%S FOB Med Cargo",
+      providerDisplayName: "Platts Gasoil 0.1%S FOB Med Cargo", providerSymbol: "AAVJI00",
+      currentProviderSymbol: "AAVJI00", provider: "platts_excel",
+      benchmarkStatus: "confirmed", unit: "USD/mt", enabled: true
     }),
     gasoline: Object.freeze({
-      id: "gasoline",
-      displayName: "Gasoline",
-      canonicalName: "Gasoline",
-      providerDisplayName: "Premium Motor Gasoline 10ppm",
-      providerSymbol: null,
-      currentProviderSymbol: null,
-      provider: null,
-      benchmarkStatus: "unavailable",
-      unavailableReason: "No approved automated source configured",
-      unit: "USD/mt",
-      enabled: true
+      id: "gasoline", displayName: "Premium Unleaded 10ppm FOB AR Barge", canonicalName: "Premium Unleaded 10ppm FOB AR Barge",
+      providerDisplayName: "Platts Premium Unleaded 10ppm FOB AR Barge", providerSymbol: "PGABM00",
+      currentProviderSymbol: "PGABM00", provider: "platts_excel",
+      benchmarkStatus: "confirmed", unit: "USD/mt", enabled: true
     }),
     jet: Object.freeze({
-      id: "jet",
-      displayName: "Jet",
-      canonicalName: "Jet",
-      providerDisplayName: "Aviation Jet Fuel CIF NWE Cargoes",
-      providerSymbol: null,
-      currentProviderSymbol: null,
-      provider: null,
-      benchmarkStatus: "unavailable",
-      unavailableReason: "No approved automated source configured",
-      unit: "USD/mt",
-      enabled: true
+      id: "jet", displayName: "Jet FOB NWE Cargo", canonicalName: "Jet FOB NWE Cargo",
+      providerDisplayName: "Platts Jet FOB NWE Cargo", providerSymbol: "PJAAV00",
+      currentProviderSymbol: "PJAAV00", provider: "platts_excel",
+      benchmarkStatus: "confirmed", unit: "USD/mt", enabled: true
     })
   });
 
-  // Retained for compatibility with the approved legacy Platts mappings.
+  // Approved workbook-specific factors. API conversion defaults remain separate.
   const BBL_PER_MT = Object.freeze({
     PAAAM00: 8.90,
-    AAVJI00: 7.44,
-    PGABM00: 8.33,
-    PJAAV00: 7.70
+    AAVJI00: 7.3137,
+    PGABM00: 8.5286,
+    PJAAV00: 7.7892
   });
 
   // Calculation code uses instrument IDs, not provider-specific symbols.

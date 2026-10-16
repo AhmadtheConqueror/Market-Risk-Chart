@@ -254,27 +254,18 @@
       // 1. Primary initial-load endpoint: GET /api/dashboard/snapshot
       const snapshot = await getDashboardSnapshot();
 
-      // 2. Fetch latest observations from backend (or construct from snapshot)
-      let observations = [];
-      try {
-        const latestList = await getLatestMarketData();
-        observations = global.OilRiskMarketDataModel.normalizeCollection(latestList);
-      } catch (_) {
-        observations = observationsFromSnapshot(snapshot);
-      }
-
-      if (!observations.length && snapshot && Array.isArray(snapshot.market_stats)) {
-        observations = observationsFromSnapshot(snapshot);
-      }
-
-      const historyByInstrument = await loadMarketHistoryByInstrument(90);
+      // Latest values and card histories come from the same canonical snapshot.
+      // Avoid eight independent reads that can straddle a workbook refresh.
+      let observations = observationsFromSnapshot(snapshot);
+      const historyByInstrument = Object.fromEntries((snapshot.market_stats || []).map(stat => [
+        stat.instrument_id, normalizeApiPayload({observations: stat.history || []})
+      ]));
       const historyObservations = Object.values(historyByInstrument).flat();
       if (historyObservations.length) {
-        observations = mergeObservations(historyObservations.concat(observations));
+        observations = mergeObservations(observations.concat(historyObservations));
       }
 
-      const hasExcelSource = (snapshot && Array.isArray(snapshot.market_stats)) && snapshot.market_stats.some((stat) => stat.provider === "internal_excel");
-      const sourceLabel = hasExcelSource ? "Hybrid market sources" : "OilPriceAPI";
+      const sourceLabel = "Platts workbook";
       const status = global.OilRiskMarketDataModel.buildStatus(observations, {
         stale: false,
         source: sourceLabel,
@@ -316,14 +307,14 @@
         prepared.macroIndicators = normalizeMacroIndicators(lastSuccessfulSnapshot.macro_indicators || [], { forceStale: true });
         prepared.source = {
           type: "api",
-          label: "OilPriceAPI (Stale)",
+          label: "Platts workbook (Stale)",
           lastRefreshed: lastSuccessfulSnapshot.generated_at,
           refreshedAtFormatted: formatIsoToLagos(lastSuccessfulSnapshot.generated_at),
           stale: true,
-          errorMessage: "Live market data temporarily unavailable."
+          errorMessage: "Platts market assessments temporarily unavailable."
         };
         prepared.apiUnavailable = true;
-        prepared.apiErrorMessage = "Live market data temporarily unavailable.";
+        prepared.apiErrorMessage = "Platts market assessments temporarily unavailable.";
         return prepared;
       }
 
@@ -334,13 +325,13 @@
       data.backendMarketStats = {};
       data.macroIndicators = normalizeMacroIndicators([]);
       data.apiUnavailable = true;
-      data.apiErrorMessage = "Live market data temporarily unavailable.";
+      data.apiErrorMessage = "Platts market assessments temporarily unavailable.";
       data.source = {
         type: "api",
-        label: "OilPriceAPI (Unavailable)",
+        label: "Platts workbook (Unavailable)",
         lastRefreshed: null,
         unavailable: true,
-        errorMessage: "Live market data temporarily unavailable."
+        errorMessage: "Platts market assessments temporarily unavailable."
       };
       data.marketDataStatus = {
         configured: true,
@@ -349,7 +340,7 @@
         missingInstruments: Object.keys(global.OilRiskConfig.MARKET_INSTRUMENTS || {}),
         error: {
           code: "API_UNAVAILABLE",
-          message: "Live market data temporarily unavailable."
+          message: "Platts market assessments temporarily unavailable."
         }
       };
 
@@ -384,7 +375,8 @@
     }
 
     return snapshot.market_stats
-      .filter((stat) => stat.current_value !== null && Number.isFinite(Number(stat.current_value)))
+      .filter((stat) => isOfficialSeries(stat.instrument_id, stat.provider, stat.provider_symbol)
+        && stat.current_value != null && Number.isFinite(Number(stat.current_value)))
       .map((stat) => ({
         instrumentId: stat.instrument_id,
         providerSymbol: stat.provider_symbol || null,
@@ -393,8 +385,8 @@
         unit: stat.unit || "USD/bbl",
         assessmentDate: stat.latest_date || snapshot.snapshot_date,
         retrievedAt: stat.retrieved_at || snapshot.generated_at,
-        provider: stat.provider || "oilpriceapi",
-        sourceType: stat.provider === "internal_excel" ? "excel" : "api",
+        provider: stat.provider || "platts_excel",
+        sourceType: stat.provider === "platts_excel" ? "excel" : "api",
         sourceTimestamp: stat.source_timestamp || null,
         ageSeconds: 0,
         freshnessStatus: stat.freshness_status || "fresh",
@@ -407,7 +399,7 @@
   function indexMarketStats(statsList) {
     const map = {};
     (statsList || []).forEach((stat) => {
-      if (stat && stat.instrument_id) {
+      if (stat && isOfficialSeries(stat.instrument_id, stat.provider, stat.provider_symbol)) {
         map[stat.instrument_id] = stat;
       }
     });
@@ -551,7 +543,7 @@
     Object.keys(kriCodes).forEach((instrumentId) => {
       const history = global.OilRiskMarketCalculations.observationsForInstrument(normalized, instrumentId);
       const latest = history[history.length - 1];
-      const previous = history[history.length - 2] || latest;
+      const previous = history[history.length - 2];
       const kri = data.kris && data.kris[kriCodes[instrumentId]];
 
       if (!kri) {
@@ -589,6 +581,11 @@
     return global.OilRiskLegacyMarketDataAdapter.fromDashboardData(data || global.dashboardData);
   }
 
+  function isOfficialSeries(instrumentId, provider, symbol) {
+    const instrument = global.OilRiskConfig.MARKET_INSTRUMENTS[instrumentId];
+    return !!instrument && provider === "platts_excel" && symbol === instrument.providerSymbol;
+  }
+
   function normalizeApiPayload(payload) {
     const rawObservations = Array.isArray(payload)
       ? payload
@@ -596,7 +593,8 @@
         ? payload.observations
         : [];
 
-    return global.OilRiskMarketDataModel.normalizeCollection(rawObservations, { strictApi: false });
+    return global.OilRiskMarketDataModel.normalizeCollection(rawObservations, { strictApi: false })
+      .filter(o => isOfficialSeries(o.instrumentId, o.provider, o.providerSymbol));
   }
 
   async function requestJson(url, options) {
@@ -618,7 +616,7 @@
     } catch (error) {
       throw new global.OilRiskMarketDataModel.MarketDataError(
         "PROVIDER_UNAVAILABLE",
-        "Live market data temporarily unavailable.",
+        "Platts market assessments temporarily unavailable.",
         { cause: error.message }
       );
     }
@@ -633,7 +631,7 @@
     if (!response.ok) {
       throw new global.OilRiskMarketDataModel.MarketDataError(
         "PROVIDER_UNAVAILABLE",
-        `Live market data temporarily unavailable (HTTP ${response.status}).`
+        `Platts market assessments temporarily unavailable (HTTP ${response.status}).`
       );
     }
 
@@ -682,7 +680,7 @@
   function serviceError(error) {
     return {
       code: error && error.code || "PROVIDER_UNAVAILABLE",
-      message: error && error.message || "Live market data temporarily unavailable."
+      message: error && error.message || "Platts market assessments temporarily unavailable."
     };
   }
 

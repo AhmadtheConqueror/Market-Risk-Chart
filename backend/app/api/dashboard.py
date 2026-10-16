@@ -10,7 +10,6 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.models.ai import AIAnalysis
 from app.models.macro import MacroIndicator
-from app.models.market import MarketInstrument, MarketObservation
 from app.models.risk import DashboardContent, RiskRegisterEntry
 from app.schemas.dashboard import (
     DashboardContentItem,
@@ -19,13 +18,7 @@ from app.schemas.dashboard import (
     RiskRegisterItem,
 )
 from app.schemas.ai import saved_analysis_payload
-from app.schemas.market import InstrumentStatsResponse, ProductSpreadItem
-from app.services.calculations import (
-    calculate_all_product_spreads,
-    calculate_instrument_stats,
-)
 from app.services.macro_ingestion import get_latest_macro_indicators
-from app.services.source_resolution import resolve_observations, source_unavailable_reason
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
@@ -110,153 +103,9 @@ def get_dashboard_snapshot(db: Annotated[Session, Depends(get_db)]) -> Dashboard
     now = datetime.now(timezone.utc)
     today_str = now.date().isoformat()
 
-    # 1. Market instruments & observations
-    instruments = db.scalars(
-        select(MarketInstrument).where(MarketInstrument.enabled.is_(True)).order_by(MarketInstrument.id)
-    ).all()
-
-    market_stats: list[InstrumentStatsResponse] = []
-    outliers: list[InstrumentStatsResponse] = []
-    latest_by_instrument: dict[str, dict[str, Any]] = {}
-
-    for inst in instruments:
-        obs_stmt = (
-            select(MarketObservation)
-            .where(MarketObservation.instrument_id == inst.id)
-            .order_by(MarketObservation.assessment_date.asc())
-        )
-        obs_records = db.scalars(obs_stmt).all()
-        selected_records, policy, resolution_status = resolve_observations(inst, obs_records)
-        obs_dicts = [
-            {
-                "assessment_date": obs.assessment_date.isoformat(),
-                "value": float(obs.value),
-                "unit": obs.unit,
-                "provider_symbol": obs.provider_symbol,
-                "provider": obs.provider,
-                "benchmark_definition": obs.benchmark_definition,
-                "display_name": inst.display_name,
-            }
-            for obs in selected_records
-        ]
-
-        # Provider metadata and accurate naming
-        provider_name = inst.provider
-        provider_sym = inst.provider_symbol
-        unit_val = inst.unit
-        source_ts_str = None
-        retrieved_at_str = None
-        unavailable_msg = None
-        latest_obs_record = selected_records[-1] if selected_records else None
-
-        if not provider_sym:
-            bench_status = "unavailable"
-            fresh_status = "unavailable"
-            prov_display_name = inst.display_name
-            unavailable_msg = "No approved automated source configured"
-        else:
-            # Use policy-driven benchmark_status and display name.
-            # Avoids hard-coded per-key logic: forcados/brent/wti → confirmed,
-            # naphtha/gasoil/gasoline/jet → proxy (from SourcePolicy.benchmark_status).
-            if policy:
-                prov_display_name = policy.benchmark_definition
-                bench_status = policy.benchmark_status
-            else:
-                prov_display_name = inst.display_name
-                bench_status = "confirmed"
-
-            if latest_obs_record:
-                unit_val = latest_obs_record.unit
-                ref_ts = (
-                    latest_obs_record.source_timestamp
-                    or latest_obs_record.retrieved_at
-                    or latest_obs_record.created_at
-                )
-                if ref_ts:
-                    if ref_ts.tzinfo is None:
-                        ref_ts = ref_ts.replace(tzinfo=timezone.utc)
-                    age_sec = max(0.0, (now - ref_ts).total_seconds())
-                    fresh_status = "fresh" if age_sec <= 36 * 3600 else "stale"
-                else:
-                    fresh_status = "fresh"
-
-                if latest_obs_record.source_timestamp:
-                    source_ts_str = latest_obs_record.source_timestamp.isoformat()
-                if latest_obs_record.retrieved_at:
-                    retrieved_at_str = latest_obs_record.retrieved_at.isoformat()
-            else:
-                fresh_status = "unavailable"
-
-        stats = calculate_instrument_stats(obs_dicts, window_days=90, min_history_points=60)
-        benchmark_definition = (
-            latest_obs_record.benchmark_definition if latest_obs_record else (policy.benchmark_definition if policy else None)
-        )
-        preferred_unavailable = resolution_status == "preferred_unavailable"
-        if preferred_unavailable:
-            stats = {
-                **stats,
-                "current_value": None,
-                "previous_value": None,
-                "change": None,
-                "percent_change": None,
-                "mean_90": None,
-                "std_dev_90": None,
-                "z_score": None,
-                "window_count": 0,
-                "history_status": "source_unavailable",
-                "latest_date": None,
-                "latest_observation": None,
-            }
-        stat_item = InstrumentStatsResponse(
-            instrument_id=inst.instrument_key,
-            display_name=inst.display_name,
-            current_value=stats["current_value"],
-            previous_value=stats["previous_value"],
-            change=stats["change"],
-            percent_change=stats["percent_change"],
-            mean_90=stats["mean_90"],
-            std_dev_90=stats["std_dev_90"],
-            z_score=stats["z_score"],
-            window_count=stats["window_count"],
-            history_status=stats.get("history_status", "valid"),
-            latest_date=stats["latest_date"],
-            unit=latest_obs_record.unit if latest_obs_record else unit_val,
-            provider=(latest_obs_record.provider if latest_obs_record else (policy.preferred_provider if policy else provider_name)),
-            provider_symbol=(latest_obs_record.provider_symbol if latest_obs_record else (policy.preferred_symbol if policy else provider_sym)),
-            provider_display_name=prov_display_name,
-            benchmark_status=bench_status,
-            freshness_status=fresh_status,
-            source_timestamp=source_ts_str,
-            retrieved_at=retrieved_at_str,
-            unavailable_reason=(source_unavailable_reason(policy) if preferred_unavailable else unavailable_msg),
-            benchmark_definition=benchmark_definition,
-        )
-        market_stats.append(stat_item)
-
-        if stats["z_score"] is not None and abs(stats["z_score"]) >= 2.0:
-            outliers.append(stat_item)
-
-        if stats.get("latest_observation"):
-            latest_by_instrument[inst.instrument_key] = stats["latest_observation"]
-
-    # 2. Product spreads
-    spreads_data = calculate_all_product_spreads(latest_by_instrument)
-    product_spreads = [
-        ProductSpreadItem(
-            instrument_id=item["instrument_id"],
-            display_name=item["display_name"],
-            date=item["date"],
-            original_price=item["original_price"],
-            original_unit=item["original_unit"],
-            barrels_per_mt=item["barrels_per_mt"],
-            converted_price=item["converted_price"],
-            brent_price=item["brent_price"],
-            spread=item["spread"],
-            is_comparable=item["is_comparable"],
-            conversion_method=item.get("conversion_method"),
-        )
-        for item in spreads_data
-    ]
+    # Official latest values, statistics and spreads share one exact Platts lineage.
+    from app.services.official_market import official_market_snapshot
+    market_stats, outliers, product_spreads = official_market_snapshot(db)
 
     # 3. Macro indicators (from verified official publisher records in database)
     latest_macros = get_latest_macro_indicators(db)
@@ -318,7 +167,7 @@ def get_dashboard_snapshot(db: Annotated[Session, Depends(get_db)]) -> Dashboard
 
     # 6. Latest AI analysis
     ai_stmt = (
-        select(AIAnalysis)
+        select(AIAnalysis.output_json)
         .where(
             AIAnalysis.analysis_type == "daily_dashboard_analysis",
             AIAnalysis.status == "completed",
@@ -328,7 +177,7 @@ def get_dashboard_snapshot(db: Annotated[Session, Depends(get_db)]) -> Dashboard
         .limit(1)
     )
     latest_ai = db.scalars(ai_stmt).first()
-    ai_analysis_dict = saved_analysis_payload(latest_ai.output_json) if (latest_ai and latest_ai.output_json) else None
+    ai_analysis_dict = saved_analysis_payload(latest_ai) if latest_ai else None
 
     return DashboardSnapshotResponse(
         snapshot_date=today_str,
